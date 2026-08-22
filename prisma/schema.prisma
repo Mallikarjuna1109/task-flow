@@ -1,0 +1,244 @@
+// TaskFlow database schema
+//
+// Cascade / Restrict policy (documented per relation below):
+//  - Children that have no meaning without their parent (org_members, projects,
+//    tasks, task_assignments, comments, refresh_tokens as *children*) CASCADE
+//    when the parent they logically belong to is deleted.
+//  - Optional "who did this" references (created_by, assigned_by) SET NULL so
+//    that historical records survive the deletion of the acting user.
+//  - comments.author_id is RESTRICT: a user cannot be deleted while they still
+//    have authored comments, to preserve an audit trail. The application does
+//    not currently expose user deletion, so this only matters for future/DB
+//    level operations, but it documents the intended integrity rule.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  org_admin
+  member
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  review
+  done
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+// Tracks whether the BullMQ "send assignment email" job was successfully
+// handed off to Redis. This is intentionally independent from the BullMQ job
+// status (pending/active/completed/failed) which lives in Redis, not Postgres.
+// See ARCHITECTURE.md > "Assignment + notification consistency strategy".
+enum NotificationStatus {
+  pending
+  queued
+  failed
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  orgMemberships  OrgMember[]
+  refreshTokens   RefreshToken[]
+  createdProjects Project[]        @relation("ProjectCreatedBy")
+  createdTasks    Task[]           @relation("TaskCreatedBy")
+  assignments     TaskAssignment[] @relation("AssignedUser")
+  assignmentsMade TaskAssignment[] @relation("AssignedByUser")
+  comments        Comment[]        @relation("CommentAuthor")
+
+  @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members  OrgMember[]
+  projects Project[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  userId    String   @map("user_id")
+  role      Role     @default(member)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // CASCADE: membership rows are meaningless once either the org or the user
+  // they link is gone.
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  // Index: reverse lookup "which orgs / role does this user have" used on
+  // every authenticated request to resolve org context.
+  @@index([userId])
+  // Index: "list members of an org" used by the admin member-management screen.
+  @@index([orgId])
+  @@map("org_members")
+}
+
+model Project {
+  id          String    @id @default(uuid())
+  orgId       String    @map("org_id")
+  name        String
+  description String?
+  createdById String?   @map("created_by_id")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // CASCADE: a project cannot outlive the organization that owns it - this is
+  // the multi-tenant partition key.
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  // SET NULL: keep the project (and its history) if the creating user is
+  // later removed from the system.
+  createdBy    User?        @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  tasks        Task[]
+
+  // Index: every project list/read is scoped "WHERE org_id = ?" - this is the
+  // single most important tenant-isolation index in the schema.
+  @@index([orgId])
+  // Index: soft-delete aware listing ("active projects in this org").
+  @@index([orgId, deletedAt])
+  @@map("projects")
+}
+
+model Task {
+  id          String       @id @default(uuid())
+  projectId   String       @map("project_id")
+  title       String
+  description String?
+  status      TaskStatus   @default(todo)
+  priority    TaskPriority @default(medium)
+  dueDate     DateTime?    @map("due_date")
+  createdById String?      @map("created_by_id")
+  deletedAt   DateTime?    @map("deleted_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  // CASCADE: a task cannot exist outside of the project it belongs to.
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // SET NULL: preserve the task if its creator is removed.
+  createdBy   User?            @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  assignments TaskAssignment[]
+  comments    Comment[]
+
+  // Bonus: full-text search over title + description. Populated by a
+  // PostgreSQL GENERATED ALWAYS AS column (see migration
+  // 20260102000000_task_fulltext_search) - Prisma treats generated/DB-only
+  // columns as "Unsupported" and never writes to them directly.
+  searchVector Unsupported("tsvector")? @map("search_vector")
+
+  // Index: "list tasks in project" - the primary task listing query.
+  @@index([projectId])
+  // Index: composite for the very common "tasks in project filtered/grouped
+  // by status" query (task list filters + the dashboard endpoint).
+  @@index([projectId, status])
+  // Index: priority filter on task listing.
+  @@index([priority])
+  // Index: due-date range filter and default due-date ordering.
+  @@index([dueDate])
+  // Index (GIN): backs the full-text search bonus endpoint.
+  @@index([searchVector], type: Gin)
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id                   String             @id @default(uuid())
+  taskId               String             @map("task_id")
+  userId               String             @map("user_id")
+  assignedById         String?            @map("assigned_by_id")
+  notificationStatus   NotificationStatus @default(pending) @map("notification_status")
+  notificationJobId    String?            @map("notification_job_id")
+  notificationAttempts Int                @default(0) @map("notification_attempts")
+  createdAt            DateTime           @default(now()) @map("created_at")
+
+  // CASCADE: an assignment cannot outlive the task it points to.
+  task       Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  // CASCADE: a user cannot remain "assigned" once the user account is gone.
+  user       User  @relation("AssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+  // SET NULL: keep the assignment record even if the assigning admin is removed.
+  assignedBy User? @relation("AssignedByUser", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  // One active assignment row per (task, user) pair - also doubles as the
+  // fast existence check used for the assign/unassign endpoints and the
+  // 5-second duplicate-assignment guard.
+  @@unique([taskId, userId])
+  // Index: "my tasks" / assignee filter on the task list endpoint.
+  @@index([userId])
+  // Index: "who is assigned to this task".
+  @@index([taskId])
+  // Index: used by the worker's reconciliation sweep to find assignments
+  // whose notification job failed to enqueue and must be retried.
+  @@index([notificationStatus])
+  @@map("task_assignments")
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  authorId  String   @map("author_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // CASCADE: a comment cannot exist outside of the task it was written on.
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  // RESTRICT: preserve authorship / audit trail - deleting a user who has
+  // authored comments must be an explicit, handled operation rather than a
+  // silent cascade that destroys task history.
+  author User @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  // Index: "list comments for a task" ordered by created_at.
+  @@index([taskId])
+  @@map("comments")
+}
+
+model RefreshToken {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  // SHA-256 hash of the actual refresh token - the raw token is never
+  // persisted, only ever returned once to the client.
+  tokenHash           String    @unique @map("token_hash")
+  expiresAt           DateTime  @map("expires_at")
+  revokedAt           DateTime? @map("revoked_at")
+  replacedByTokenHash String?   @map("replaced_by_token_hash")
+  userAgent           String?   @map("user_agent")
+  ipAddress           String?   @map("ip_address")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  // CASCADE: refresh tokens are meaningless without the user session they
+  // authenticate.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Index: "revoke all tokens for this user" (logout-all-devices bonus).
+  @@index([userId])
+  // Index: expired-token cleanup sweeps.
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}

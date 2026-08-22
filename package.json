@@ -1,0 +1,73 @@
+{
+  "name": "taskflow-backend",
+  "version": "1.0.0",
+  "description": "TaskFlow - multi-tenant project management backend (API + Worker)",
+  "private": true,
+  "license": "MIT",
+  "main": "dist/server.js",
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev:api": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/workers/index.ts",
+    "start:api": "node dist/server.js",
+    "start:worker": "node dist/workers/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:seed": "ts-node --transpile-only prisma/seed.ts",
+    "prisma:studio": "prisma studio",
+    "test": "cross-env NODE_ENV=test jest --runInBand",
+    "test:coverage": "cross-env NODE_ENV=test jest --runInBand --coverage",
+    "test:unit": "cross-env NODE_ENV=test jest --runInBand tests/unit",
+    "test:integration": "cross-env NODE_ENV=test jest --runInBand tests/integration",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.19.1",
+    "bcrypt": "^5.1.1",
+    "bullmq": "^5.12.12",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "pino": "^9.4.0",
+    "pino-http": "^10.3.0",
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.13",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20.16.5",
+    "@types/supertest": "^6.0.2",
+    "@types/swagger-ui-express": "^4.1.6",
+    "@types/uuid": "^10.0.0",
+    "cross-env": "^7.0.3",
+    "jest": "^29.7.0",
+    "prisma": "^5.19.1",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  },
+  "allowScripts": {
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "@scarf/scarf@1.4.0": true,
+    "bcrypt@5.1.1": true,
+    "esbuild@0.28.2": true,
+    "msgpackr-extract@3.0.4": true,
+    "prisma@5.22.0": true
+  }
+}

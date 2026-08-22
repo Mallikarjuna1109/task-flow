@@ -1,0 +1,123 @@
+name: taskflow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: taskflow
+      POSTGRES_PASSWORD: taskflow
+      POSTGRES_DB: taskflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - taskflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskflow -d taskflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - taskflow_net
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - taskflow_net
+
+  # One-shot job: applies Prisma migrations then seeds the database. Both
+  # `api` and `worker` wait for this to complete successfully before
+  # starting, so the schema is always ready before either process connects.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    command: sh -c "npx prisma migrate deploy && npx prisma db seed"
+    environment:
+      DATABASE_URL: postgresql://taskflow:taskflow@postgres:5432/taskflow?schema=public
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - taskflow_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://taskflow:taskflow@postgres:5432/taskflow?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret-change-me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL_DAYS: 7
+      BCRYPT_SALT_ROUNDS: 12
+      AUTH_RATE_LIMIT_WINDOW_MS: 60000
+      AUTH_RATE_LIMIT_MAX: 10
+      EMAIL_MAX_RETRIES: 3
+      EMAIL_RATE_LIMIT_MAX: 50
+      EMAIL_RATE_LIMIT_DURATION_MS: 60000
+      CORS_ORIGIN: "*"
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - taskflow_net
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://taskflow:taskflow@postgres:5432/taskflow?schema=public
+      REDIS_URL: redis://redis:6379
+      EMAIL_MAX_RETRIES: 3
+      EMAIL_RATE_LIMIT_MAX: 50
+      EMAIL_RATE_LIMIT_DURATION_MS: 60000
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - taskflow_net
+
+networks:
+  taskflow_net:
+    driver: bridge
+
+volumes:
+  taskflow_postgres_data:

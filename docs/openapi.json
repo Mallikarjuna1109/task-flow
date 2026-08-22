@@ -1,0 +1,540 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TaskFlow API",
+    "version": "1.0.0",
+    "description": "Multi-tenant project management backend: organizations, projects, tasks, assignments and background email notifications."
+  },
+  "servers": [{ "url": "http://localhost:3000", "description": "Local" }],
+  "tags": [
+    { "name": "Auth" },
+    { "name": "Organizations" },
+    { "name": "Projects" },
+    { "name": "Tasks" },
+    { "name": "Jobs" },
+    { "name": "Health" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string", "example": "Task not found" },
+          "code": { "type": "string", "example": "TASK_NOT_FOUND" },
+          "details": { "type": "object" }
+        },
+        "required": ["error", "code", "details"]
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["email", "password", "name", "organizationName"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 8, "example": "Password123!" },
+          "name": { "type": "string", "example": "Alice Anderson" },
+          "organizationName": { "type": "string", "example": "Acme Corp" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string" }
+        }
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": ["refreshToken"],
+        "properties": { "refreshToken": { "type": "string" } }
+      },
+      "LogoutRequest": {
+        "type": "object",
+        "required": ["refreshToken"],
+        "properties": {
+          "refreshToken": { "type": "string" },
+          "allDevices": { "type": "boolean", "default": false, "description": "Bonus: revoke every refresh token for this user." }
+        }
+      },
+      "AuthUser": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string" },
+          "name": { "type": "string" },
+          "orgId": { "type": "string", "format": "uuid" },
+          "orgName": { "type": "string" },
+          "role": { "type": "string", "enum": ["org_admin", "member"] }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "user": { "$ref": "#/components/schemas/AuthUser" },
+          "accessToken": { "type": "string" },
+          "refreshToken": { "type": "string" },
+          "expiresIn": { "type": "string", "example": "15m" }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "orgId": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "createdById": { "type": "string", "format": "uuid", "nullable": true },
+          "deletedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateProjectRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string" }, "description": { "type": "string" } }
+      },
+      "UpdateProjectRequest": {
+        "type": "object",
+        "properties": { "name": { "type": "string" }, "description": { "type": "string", "nullable": true } }
+      },
+      "ProjectListResponse": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } },
+          "total": { "type": "integer" },
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
+      },
+      "Dashboard": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string", "format": "uuid" },
+          "total": { "type": "integer" },
+          "byStatus": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "status": { "type": "string", "enum": ["todo", "in_progress", "review", "done"] },
+                "count": { "type": "integer" }
+              }
+            }
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "projectId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "status": { "type": "string", "enum": ["todo", "in_progress", "review", "done"] },
+          "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+          "dueDate": { "type": "string", "format": "date-time", "nullable": true },
+          "createdById": { "type": "string", "format": "uuid", "nullable": true },
+          "deletedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateTaskRequest": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string", "enum": ["todo", "in_progress", "review", "done"] },
+          "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+          "dueDate": { "type": "string", "format": "date-time" }
+        }
+      },
+      "UpdateTaskRequest": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "status": { "type": "string", "enum": ["todo", "in_progress", "review", "done"] },
+          "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+          "dueDate": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "TaskListResponse": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } },
+          "total": { "type": "integer" },
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
+      },
+      "BulkUpdateStatusRequest": {
+        "type": "object",
+        "required": ["taskIds", "status"],
+        "properties": {
+          "taskIds": { "type": "array", "items": { "type": "string", "format": "uuid" }, "minItems": 1 },
+          "status": { "type": "string", "enum": ["todo", "in_progress", "review", "done"] }
+        }
+      },
+      "AssignTaskRequest": {
+        "type": "object",
+        "required": ["userId"],
+        "properties": { "userId": { "type": "string", "format": "uuid" } }
+      },
+      "TaskAssignment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "taskId": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "assignedById": { "type": "string", "format": "uuid", "nullable": true },
+          "notificationStatus": { "type": "string", "enum": ["pending", "queued", "failed"] },
+          "notificationJobId": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateCommentRequest": {
+        "type": "object",
+        "required": ["body"],
+        "properties": { "body": { "type": "string" } }
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "taskId": { "type": "string", "format": "uuid" },
+          "authorId": { "type": "string", "format": "uuid" },
+          "body": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AddMemberRequest": {
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string", "enum": ["org_admin", "member"], "default": "member" }
+        }
+      },
+      "UpdateMemberRoleRequest": {
+        "type": "object",
+        "required": ["role"],
+        "properties": { "role": { "type": "string", "enum": ["org_admin", "member"] } }
+      },
+      "JobStatus": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "active", "completed", "failed"] },
+          "attemptsMade": { "type": "integer" },
+          "maxAttempts": { "type": "integer", "nullable": true },
+          "data": { "type": "object" },
+          "failedReason": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time", "nullable": true },
+          "processedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "finishedAt": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      }
+    },
+    "responses": {
+      "ValidationError": {
+        "description": "Request failed schema validation",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "Unauthenticated": {
+        "description": "Missing or invalid access token",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "Forbidden": {
+        "description": "Authenticated but not permitted (including cross-tenant access attempts)",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Liveness check",
+        "security": [],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register a new user and a new organization (creator becomes org_admin)",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterRequest" } } } },
+        "responses": {
+          "201": { "description": "Registered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "409": { "description": "Email already registered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "Rate limited (10 req/min/IP)" }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login with email and password",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } } },
+        "responses": {
+          "200": { "description": "Logged in", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "401": { "description": "Invalid credentials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "Rate limited (10 req/min/IP)" }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Exchange a refresh token for a new token pair (rotates the refresh token)",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } } },
+        "responses": {
+          "200": { "description": "New token pair", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "401": { "description": "Invalid/expired/reused refresh token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "429": { "description": "Rate limited (10 req/min/IP)" }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Revoke a refresh token (optionally all of the user's refresh tokens)",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LogoutRequest" } } } },
+        "responses": {
+          "204": { "description": "Logged out" },
+          "429": { "description": "Rate limited (10 req/min/IP)" }
+        }
+      }
+    },
+    "/organizations/members": {
+      "get": {
+        "tags": ["Organizations"],
+        "summary": "List members of the authenticated user's organization",
+        "responses": { "200": { "description": "OK" }, "401": { "$ref": "#/components/responses/Unauthenticated" } }
+      },
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Add an existing registered user to the organization (org_admin only)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddMemberRequest" } } } },
+        "responses": {
+          "201": { "description": "Member added" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "No registered user with this email" }
+        }
+      }
+    },
+    "/organizations/members/{userId}": {
+      "patch": {
+        "tags": ["Organizations"],
+        "summary": "Change a member's role (org_admin only)",
+        "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateMemberRoleRequest" } } } },
+        "responses": { "200": { "description": "Updated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["Organizations"],
+        "summary": "Remove a member from the organization (org_admin only)",
+        "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "204": { "description": "Removed" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/projects": {
+      "post": {
+        "tags": ["Projects"],
+        "summary": "Create a project in the authenticated user's organization",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProjectRequest" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } }, "400": { "$ref": "#/components/responses/ValidationError" } }
+      },
+      "get": {
+        "tags": ["Projects"],
+        "summary": "List projects in the authenticated user's organization (offset pagination)",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectListResponse" } } } } }
+      }
+    },
+    "/projects/{projectId}": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Get a project by id",
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "patch": {
+        "tags": ["Projects"],
+        "summary": "Update a project",
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateProjectRequest" } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } }, "400": { "$ref": "#/components/responses/ValidationError" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["Projects"],
+        "summary": "Soft-delete a project (org_admin only)",
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "204": { "description": "Deleted" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/projects/{projectId}/dashboard": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Task counts grouped by status for a project",
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Dashboard" } } } } }
+      }
+    },
+    "/projects/{projectId}/tasks": {
+      "post": {
+        "tags": ["Tasks"],
+        "summary": "Create a task in a project",
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTaskRequest" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } }, "400": { "$ref": "#/components/responses/ValidationError" } }
+      },
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "List tasks in a project, with filters (offset pagination)",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["todo", "in_progress", "review", "done"] } },
+          { "name": "priority", "in": "query", "schema": { "type": "string", "enum": ["low", "medium", "high", "urgent"] } },
+          { "name": "assigneeId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "dueAfter", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "dueBefore", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskListResponse" } } } } }
+      }
+    },
+    "/projects/{projectId}/tasks/bulk-status": {
+      "patch": {
+        "tags": ["Tasks"],
+        "summary": "Bonus: bulk-update the status of multiple tasks in a project",
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BulkUpdateStatusRequest" } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/projects/{projectId}/tasks/{taskId}": {
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "Get a task by id",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "patch": {
+        "tags": ["Tasks"],
+        "summary": "Update a task",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateTaskRequest" } } } },
+        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } }, "400": { "$ref": "#/components/responses/ValidationError" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["Tasks"],
+        "summary": "Soft-delete a task",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "204": { "description": "Deleted" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/projects/{projectId}/tasks/{taskId}/assignments": {
+      "post": {
+        "tags": ["Tasks"],
+        "summary": "Assign a user (from the same organization) to a task; enqueues an email notification job",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssignTaskRequest" } } } },
+        "responses": {
+          "201": { "description": "Assigned", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskAssignment" } } } },
+          "400": { "description": "Assignee not in the same organization" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Already assigned (outside the 5s dedupe window)" }
+        }
+      }
+    },
+    "/projects/{projectId}/tasks/{taskId}/assignments/{userId}": {
+      "delete": {
+        "tags": ["Tasks"],
+        "summary": "Unassign a user from a task",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "userId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "204": { "description": "Unassigned" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/projects/{projectId}/tasks/{taskId}/comments": {
+      "post": {
+        "tags": ["Tasks"],
+        "summary": "Add a comment to a task",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCommentRequest" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Comment" } } } } }
+      },
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "List comments on a task",
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/tasks/search": {
+      "get": {
+        "tags": ["Tasks"],
+        "summary": "Bonus: org-wide full-text search over task title + description",
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "tags": ["Jobs"],
+        "summary": "Get the status of a background job (email notification)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobStatus" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  }
+}
