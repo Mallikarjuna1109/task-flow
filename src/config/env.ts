@@ -29,7 +29,10 @@ export const env = {
       ? required('DATABASE_URL_TEST', process.env.DATABASE_URL)
       : required('DATABASE_URL'),
 
-  redisUrl: required('REDIS_URL', 'redis://localhost:6379'),
+  redisUrl:
+    process.env.NODE_ENV === 'production'
+      ? required('REDIS_URL')
+      : (process.env.REDIS_URL ?? 'redis://localhost:6379'),
 
   jwtAccessSecret: required('JWT_ACCESS_SECRET'),
   jwtRefreshSecret: required('JWT_REFRESH_SECRET'),
