@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import { NotificationStatus } from '@prisma/client';
 import { taskService } from '../services/task.service';
 import { assignmentService } from '../services/assignment.service';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -54,8 +53,7 @@ export const taskController = {
 
   assign: asyncHandler(async (req: Request, res: Response) => {
     const assignment = await assignmentService.assign(req.auth!, req.params.projectId, req.params.taskId, req.body.userId);
-    const statusCode = assignment.notificationStatus === NotificationStatus.queued ? 201 : 202;
-    res.status(statusCode).json(assignment);
+    res.status(201).json(assignment);
   }),
 
   unassign: asyncHandler(async (req: Request, res: Response) => {

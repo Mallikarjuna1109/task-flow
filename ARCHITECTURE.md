@@ -109,8 +109,8 @@ sequenceDiagram
         Svc->>DB: notification_status = queued, notification_job_id = <id>
         Svc-->>C: 201 Created (assignment row, notificationStatus: "queued")
     else enqueue fails
-        Svc->>DB: notification_status = failed (logged, assignment NOT rolled back)
-        Svc-->>C: 202 Accepted (assignment row, notificationStatus: "failed")
+        Svc->>DB: notification_status = failed, notification_job_id = null (assignment NOT rolled back)
+        Svc-->>C: 503 Service Unavailable ({error, code: NOTIFICATION_ENQUEUE_FAILED, details: {assignmentId, ...}})
     end
 
     W->>Q: pick up job
@@ -213,12 +213,12 @@ Restated from the README for completeness, since this is one of the assignment's
 
 > **The task_assignment row in Postgres is written first** (its own transaction) - this is the durable, authoritative record. **The API then awaits the BullMQ enqueue call before responding at all** - Postgres and Redis can't share a transaction, so this can't be one atomic operation, but the request genuinely does not return until both steps have been attempted. The response status reflects the real outcome:
 >
-> - Enqueue **succeeds** → `notification_status = 'queued'` → **`201 Created`**. This is the only case where both "persist" and "enqueue" are confirmed, so it's the only case that reports full success.
-> - Enqueue **fails** (Redis blip, network partition) → `notification_status = 'failed'` → **`202 Accepted`**, not `201`. The body still contains the real, persisted assignment (including its id, so the client can act on it), but the status code does not overclaim that the notification was queued.
+> - Enqueue **succeeds** → `notification_status = 'queued'` → **`201 Created`**. This is the only case where both "persist" and "enqueue" are confirmed, so it's the only case that reports a successful response.
+> - Enqueue **fails** (Redis blip, network partition) → `notification_status = 'failed'`, `notification_job_id = null` → **`503 Service Unavailable`**, not `201` and not any other 2xx. The response body is the standard error envelope (`{ error, code: "NOTIFICATION_ENQUEUE_FAILED", details }`), with `details` carrying the persisted `assignmentId`/`taskId`/`userId` so the caller isn't left with nothing to act on - but the status code makes no claim of success, because the notification genuinely wasn't enqueued.
 >
-> In the `202` case, **the assignment is not rolled back.** A Redis-side failure rolling back a fully valid, authorized, already-committed assignment would itself be an inconsistency - the client would see an operation that should have succeeded reported as failed, and a naive retry could collide with the 5-second dedupe window or the unique `(task_id, user_id)` constraint. Instead, the persisted row *is* the recovery record: a background reconciliation sweep in the Worker process (every 60s, plus once at startup) scans for assignments stuck in `pending`/`failed` and retries enqueueing them (same deterministic job id, so no duplicate emails), capped at 5 sweep attempts per row.
+> In the `503` case, **the assignment is not rolled back.** A Redis-side failure rolling back a fully valid, authorized, already-committed assignment would itself be an inconsistency - a naive retry after a rollback could collide with the 5-second dedupe window or the unique `(task_id, user_id)` constraint, or simply lose the fact that the assignment was already (correctly) made. Instead, the persisted row *is* the recovery record: a background reconciliation sweep in the Worker process (every 60s, plus once at startup) scans for assignments stuck in `pending`/`failed` and retries enqueueing them (same deterministic job id, so no duplicate emails), capped at 5 sweep attempts per row. This check (`assignmentService.assertEnqueued`) runs on both the fresh-assignment path and the deduped-repeat path, so a repeat call against an assignment whose original enqueue never got confirmed also correctly reports `503` rather than a stale "success."
 
-Trade-off accepted: a Redis outage at the exact moment of assignment means the client sees `202` instead of `201`, and that one email is delayed until the next reconciliation sweep (up to ~60s) rather than failing the assignment outright. This is the correct side to fail toward given email delivery is explicitly mocked/non-critical for this assignment, while still honoring the letter of the "persist and enqueue before success" requirement.
+Trade-off accepted: a Redis outage at the exact moment of assignment means the client sees a `503` instead of `201`, and that one email is delayed until the next reconciliation sweep (up to ~60s) rather than failing the assignment outright. This is the correct side to fail toward given email delivery is explicitly mocked/non-critical for this assignment, while honoring the letter of the "persist and enqueue before success" requirement: the endpoint never returns a 2xx unless both steps are actually done.
 
 ## 8. Important Design Decisions
 

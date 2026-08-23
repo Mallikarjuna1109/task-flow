@@ -34,7 +34,7 @@ export const assignmentService = {
     if (existing) {
       const ageMs = Date.now() - existing.createdAt.getTime();
       if (ageMs <= DEDUPE_WINDOW_MS) {
-        return existing;
+        return this.assertEnqueued(existing);
       }
       throw ApiError.conflict('TASK_ALREADY_ASSIGNED', 'User is already assigned to this task', {});
     }
@@ -54,7 +54,23 @@ export const assignmentService = {
       assignedByUserId: auth.userId,
     });
 
-    return updated ?? assignment;
+    return this.assertEnqueued(updated ?? assignment);
+  },
+
+  assertEnqueued(assignment: TaskAssignment): TaskAssignment {
+    if (assignment.notificationStatus !== NotificationStatus.queued) {
+      throw ApiError.serviceUnavailable(
+        'NOTIFICATION_ENQUEUE_FAILED',
+        'The task assignment was persisted, but the notification job could not be enqueued. It will be retried automatically.',
+        {
+          assignmentId: assignment.id,
+          taskId: assignment.taskId,
+          userId: assignment.userId,
+          notificationStatus: assignment.notificationStatus,
+        },
+      );
+    }
+    return assignment;
   },
 
   async unassign(auth: AuthContext, projectId: string, taskId: string, userId: string) {

@@ -38,4 +38,8 @@ export class ApiError extends Error {
   static internal(code: string, message: string, details: Record<string, unknown> = {}) {
     return new ApiError(500, code, message, details);
   }
+
+  static serviceUnavailable(code: string, message: string, details: Record<string, unknown> = {}) {
+    return new ApiError(503, code, message, details);
+  }
 }

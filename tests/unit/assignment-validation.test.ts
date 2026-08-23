@@ -114,7 +114,7 @@ describe('assignmentService.assign - validation rules', () => {
     });
   });
 
-  it('returns notificationStatus "failed" (not "queued") when enqueueing fails but the assignment is still persisted', async () => {
+  it('throws a 503 (not a fake-success response) when enqueueing fails, while still leaving the assignment persisted with notificationStatus "failed" and notificationJobId null', async () => {
     (orgRepository.isUserInOrg as jest.Mock).mockResolvedValue(true);
     (assignmentRepository.findActive as jest.Mock).mockResolvedValue(null);
     (assignmentRepository.create as jest.Mock).mockResolvedValue({
@@ -133,14 +133,17 @@ describe('assignmentService.assign - validation rules', () => {
       notificationJobId: null,
     });
 
-    const result = await assignmentService.assign(auth, 'project-1', 'task-1', 'user-2');
+    await expect(assignmentService.assign(auth, 'project-1', 'task-1', 'user-2')).rejects.toMatchObject({
+      code: 'NOTIFICATION_ENQUEUE_FAILED',
+      statusCode: 503,
+      details: { assignmentId: 'assignment-1', notificationStatus: 'failed' },
+    });
 
+    // The assignment write itself still happened and was never rolled back.
     expect(assignmentRepository.create).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({ id: 'assignment-1', notificationStatus: 'failed', notificationJobId: null });
-    expect(result.notificationStatus).not.toBe('queued');
   });
 
-  it('falls back to the pre-enqueue assignment if enqueueing AND the failure bookkeeping update both fail', async () => {
+  it('still throws 503 (persistence preserved) if enqueueing AND the failure bookkeeping update both fail', async () => {
     (orgRepository.isUserInOrg as jest.Mock).mockResolvedValue(true);
     (assignmentRepository.findActive as jest.Mock).mockResolvedValue(null);
     (assignmentRepository.create as jest.Mock).mockResolvedValue({
@@ -153,8 +156,13 @@ describe('assignmentService.assign - validation rules', () => {
     (emailQueue.add as jest.Mock).mockRejectedValueOnce(new Error('redis unreachable'));
     (assignmentRepository.updateNotificationStatus as jest.Mock).mockRejectedValueOnce(new Error('db unreachable'));
 
-    const result = await assignmentService.assign(auth, 'project-1', 'task-1', 'user-2');
-    expect(result).toMatchObject({ id: 'assignment-1', notificationStatus: 'pending' });
+    await expect(assignmentService.assign(auth, 'project-1', 'task-1', 'user-2')).rejects.toMatchObject({
+      code: 'NOTIFICATION_ENQUEUE_FAILED',
+      statusCode: 503,
+      details: { assignmentId: 'assignment-1', notificationStatus: 'pending' },
+    });
+
+    expect(assignmentRepository.create).toHaveBeenCalledTimes(1);
   });
 
   it('deduplicates a repeat assignment made within 5 seconds (no new job, no error)', async () => {
@@ -163,12 +171,32 @@ describe('assignmentService.assign - validation rules', () => {
       id: 'assignment-1',
       taskId: 'task-1',
       userId: 'user-2',
+      notificationStatus: 'queued',
       createdAt: new Date(),
     });
 
     const result = await assignmentService.assign(auth, 'project-1', 'task-1', 'user-2');
 
     expect(result).toMatchObject({ id: 'assignment-1' });
+    expect(assignmentRepository.create).not.toHaveBeenCalled();
+    expect(emailQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('throws 503 for a deduped repeat whose original enqueue was never confirmed', async () => {
+    (orgRepository.isUserInOrg as jest.Mock).mockResolvedValue(true);
+    (assignmentRepository.findActive as jest.Mock).mockResolvedValue({
+      id: 'assignment-1',
+      taskId: 'task-1',
+      userId: 'user-2',
+      notificationStatus: 'failed',
+      createdAt: new Date(),
+    });
+
+    await expect(assignmentService.assign(auth, 'project-1', 'task-1', 'user-2')).rejects.toMatchObject({
+      code: 'NOTIFICATION_ENQUEUE_FAILED',
+      statusCode: 503,
+    });
+
     expect(assignmentRepository.create).not.toHaveBeenCalled();
     expect(emailQueue.add).not.toHaveBeenCalled();
   });

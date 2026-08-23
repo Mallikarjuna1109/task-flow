@@ -122,8 +122,9 @@ API: assignmentService.assign()
   2. INSERT task_assignment (Postgres transaction) → this is the durable, authoritative result
   3. AWAIT emailQueue.add(...) synchronously → the request does not respond until this settles
   4a. If enqueue succeeds: notification_status = 'queued' → API responds 201 Created
-  4b. If enqueue fails:    notification_status = 'failed' → API responds 202 Accepted
-      (the assignment is NOT rolled back either way)
+  4b. If enqueue fails:    notification_status = 'failed', notificationJobId = null →
+      API responds 503 Service Unavailable (NOT a 2xx)
+      (the assignment is NOT rolled back either way - only the response differs)
 
 Worker: BullMQ Worker on "email-notifications"
   - processes jobs with the mock email sender (jobs/email.job.ts)
@@ -136,16 +137,16 @@ Worker: BullMQ Worker on "email-notifications"
 
 ### Assignment + notification consistency strategy (spec requirement)
 
-The spec requires: *"The assignment endpoint must persist the task assignment and enqueue the email notification job before returning a successful response."* This is enforced literally, not just as an ordering convention:
+The spec requires: *"The assignment endpoint must persist the task assignment and enqueue the email notification job before returning a successful response."* This is enforced literally - a 2xx is only ever returned once both have genuinely happened:
 
 1. The `task_assignment` row is written first (Postgres transaction) - this is the durable, authoritative record of the assignment.
 2. The API then **awaits** `emailQueue.add(...)` - the enqueue attempt happens synchronously, before any response is sent. The request never returns before both steps have been attempted.
-3. **The response status depends on the actual outcome of step 2, not just on step 1 succeeding:**
-   - Enqueue **succeeds** → `notification_status = 'queued'` → **`201 Created`**. Both persistence and enqueueing are confirmed done; this is the only case that gets `201`.
-   - Enqueue **fails** (Redis blip, network partition) → `notification_status = 'failed'` → **`202 Accepted`**. The assignment itself is real and returned in the body, but the response is deliberately *not* `201` - it does not claim the notification job was enqueued, because it wasn't.
-4. In the `202` case the assignment is **not rolled back**. Postgres and Redis cannot share a transaction, and rolling back a real, valid assignment just because a best-effort side effect failed would itself be an inconsistency (the client would have to retry the whole operation, risking confusing dedupe/conflict semantics on a task that may already be correctly assigned). Instead, the persisted row - now the recovery record - is picked up by the worker's **reconciliation sweep**, which retries enqueueing for any assignment stuck in `pending`/`failed`, capped at 5 sweep attempts per row.
+3. **The response depends on the actual outcome of step 2, not just on step 1 succeeding:**
+   - Enqueue **succeeds** → `notification_status = 'queued'` → **`201 Created`**, body is the assignment. This is the only case that returns a successful response, because it's the only case where both "persist" and "enqueue" are actually true.
+   - Enqueue **fails** (Redis blip, network partition) → `notification_status = 'failed'`, `notificationJobId = null` → **`503 Service Unavailable`**, body is the standard `{ error, code: "NOTIFICATION_ENQUEUE_FAILED", details }` error shape (`details` includes the persisted `assignmentId`/`taskId`/`userId` so the caller isn't left with nothing). This is deliberately **not** a 2xx - the endpoint refuses to report success when it didn't fully succeed.
+4. In the `503` case the assignment is **still not rolled back**. Postgres and Redis cannot share a transaction, and rolling back a real, valid assignment just because a best-effort side effect failed would itself be an inconsistency (the client would have to retry the whole operation, risking confusing dedupe/conflict semantics on a task that may already be correctly assigned). Instead, the persisted row - now the recovery record - is picked up by the worker's **reconciliation sweep**, which retries enqueueing for any assignment stuck in `pending`/`failed`, capped at 5 sweep attempts per row.
 
-In short: `201` is reserved exclusively for "both steps confirmed"; `202` honestly reports "assignment persisted, notification enqueue pending retry" instead of overclaiming success; and the persisted assignment is always the recovery anchor reconciliation works from - it is never left in limbo or silently discarded. See `src/services/assignment.service.ts` and `src/controllers/task.controller.ts` for the implementation, and [ARCHITECTURE.md](./ARCHITECTURE.md) for the full flow diagram.
+In short: `201` is reserved exclusively for "both steps confirmed"; `503` is an honest failure response for "assignment persisted, notification enqueue temporarily failed" rather than a 2xx that overclaims success; and the persisted assignment is always the recovery anchor reconciliation works from - it is never left in limbo or silently discarded. This logic lives entirely in the service layer (`assignmentService.assertEnqueued`, called on both the fresh-assign and the deduped-repeat paths) so the controller has no branching to get wrong - it always responds `201` on the normal return path, and the 503 is thrown before it ever gets there. See `src/services/assignment.service.ts` and `src/controllers/task.controller.ts` for the implementation, and [ARCHITECTURE.md](./ARCHITECTURE.md) for the full flow diagram.
 
 **Bonus features implemented:**
 - **Deduplication within 5 seconds**: a repeat assignment call for the same (task, user) pair within 5s of the first is treated as a no-op success (no duplicate DB row, no duplicate email job); outside that window it's a `409 TASK_ALREADY_ASSIGNED`.
@@ -174,7 +175,7 @@ Full request/response schemas: **Swagger UI at `/docs`** (`docs/openapi.json`).
 | POST/GET | `/projects/:projectId/tasks` | create / list with filters + pagination |
 | PATCH | `/projects/:projectId/tasks/bulk-status` | bonus: bulk status update |
 | GET/PATCH/DELETE | `/projects/:projectId/tasks/:taskId` | |
-| POST | `/projects/:projectId/tasks/:taskId/assignments` | assign; `201` if the notification job was confirmed enqueued, `202` if persisted but enqueue failed (see §8) |
+| POST | `/projects/:projectId/tasks/:taskId/assignments` | assign; `201` only if the notification job was confirmed enqueued, `503` if persisted but enqueue failed (see §8) |
 | DELETE | `/projects/:projectId/tasks/:taskId/assignments/:userId` | unassign |
 | POST/GET | `/projects/:projectId/tasks/:taskId/comments` | |
 | GET | `/tasks/search?q=` | bonus: full-text search |
@@ -240,7 +241,7 @@ To run integration tests locally without full Docker: `docker compose up -d post
 
 Coverage highlights:
 - **Unit**: bcrypt cost factor + verify/reject, JWT sign/verify + tamper rejection, pagination helper edge cases, task-assignment validation rules (cross-org rejection, dedupe window, 403-vs-404 shaping) via mocked repositories.
-- **Integration**: full register/login/refresh(-rotation)/logout flow, task CRUD + filters + dashboard, cross-tenant 403 (project & task, with a check that the response body never contains the other org's data), client-supplied `orgId` being ignored, validation error shape, RBAC (member cannot delete a project), that assigning a task actually creates an inspectable BullMQ job, and the assignment consistency strategy itself: `201` when the notification job is confirmed enqueued, `202` (with the assignment still persisted) when enqueueing is simulated to fail, and that the reconciliation sweep subsequently enqueues it.
+- **Integration**: full register/login/refresh(-rotation)/logout flow, task CRUD + filters + dashboard, cross-tenant 403 (project & task, with a check that the response body never contains the other org's data), client-supplied `orgId` being ignored, validation error shape, RBAC (member cannot delete a project), that assigning a task actually creates an inspectable BullMQ job, and the assignment consistency strategy itself: `201` when the notification job is confirmed enqueued, `503` (with the assignment still persisted, verified directly against the database) when enqueueing is simulated to fail, and that the reconciliation sweep subsequently enqueues it.
 
 ## 17. Swagger URL
 

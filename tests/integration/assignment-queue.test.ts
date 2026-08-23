@@ -86,7 +86,7 @@ describe('Assignment + notification consistency strategy', () => {
     expect(typeof assignRes.body.notificationJobId).toBe('string');
   });
 
-  it('returns 202 (not 201) when enqueueing fails, still persists the assignment, and reconciliation later enqueues it', async () => {
+  it('returns 503 (not 201) when enqueueing fails, still persists the assignment, and reconciliation later enqueues it', async () => {
     const user = await registerUser();
     const project = await createProject(user);
     const task = await createTask(user, project.id);
@@ -97,23 +97,26 @@ describe('Assignment + notification consistency strategy', () => {
       .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
       .set('Authorization', `Bearer ${user.accessToken}`)
       .send({ userId: user.userId })
-      .expect(202);
+      .expect(503);
 
-    expect(assignRes.body.notificationStatus).toBe('failed');
-    expect(assignRes.body.notificationJobId).toBeNull();
+    expect(assignRes.body.code).toBe('NOTIFICATION_ENQUEUE_FAILED');
+    const assignmentId: string = assignRes.body.details.assignmentId;
+    expect(typeof assignmentId).toBe('string');
+    expect(assignRes.body.details.notificationStatus).toBe('failed');
 
     addSpy.mockRestore();
 
-    const persisted = await prisma.taskAssignment.findUnique({ where: { id: assignRes.body.id } });
+    const persisted = await prisma.taskAssignment.findUnique({ where: { id: assignmentId } });
     expect(persisted).toBeTruthy();
     expect(persisted?.notificationStatus).toBe('failed');
+    expect(persisted?.notificationJobId).toBeNull();
     expect(persisted?.taskId).toBe(task.id);
     expect(persisted?.userId).toBe(user.userId);
 
     const swept = await runNotificationReconciliationSweep();
     expect(swept).toBeGreaterThanOrEqual(1);
 
-    const jobId = assignmentNotificationJobId(assignRes.body.id);
+    const jobId = assignmentNotificationJobId(assignmentId);
     const job = await emailQueue.getJob(jobId);
     expect(job).toBeTruthy();
 
@@ -124,7 +127,7 @@ describe('Assignment + notification consistency strategy', () => {
     expect(['pending', 'active', 'completed']).toContain(jobStatusRes.body.status);
   });
 
-  it('returns 202 for a deduped repeat assignment whose original enqueue is still not confirmed', async () => {
+  it('returns 503 for a deduped repeat assignment whose original enqueue is still not confirmed', async () => {
     const user = await registerUser();
     const project = await createProject(user);
     const task = await createTask(user, project.id);
@@ -135,7 +138,7 @@ describe('Assignment + notification consistency strategy', () => {
       .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
       .set('Authorization', `Bearer ${user.accessToken}`)
       .send({ userId: user.userId })
-      .expect(202);
+      .expect(503);
 
     addSpy.mockRestore();
 
@@ -143,8 +146,9 @@ describe('Assignment + notification consistency strategy', () => {
       .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
       .set('Authorization', `Bearer ${user.accessToken}`)
       .send({ userId: user.userId })
-      .expect(202);
+      .expect(503);
 
-    expect(repeatRes.body.notificationStatus).toBe('failed');
+    expect(repeatRes.body.code).toBe('NOTIFICATION_ENQUEUE_FAILED');
+    expect(repeatRes.body.details.notificationStatus).toBe('failed');
   });
 });
