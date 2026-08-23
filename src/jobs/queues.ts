@@ -18,19 +18,16 @@ export interface AssignmentEmailJobData {
   assignedByUserId: string | null;
 }
 
-// Retry policy per spec: 3 attempts total, exponential backoff 1s -> 2s -> 4s.
 export const emailQueue = new Queue<AssignmentEmailJobData>(EMAIL_QUEUE_NAME, {
   connection: redisConnection,
   defaultJobOptions: {
     attempts: env.emailMaxRetries,
     backoff: { type: 'exponential', delay: 1000 },
-    // Kept (not removed) so GET /jobs/:id can still report "failed".
+    removeOnComplete: { age: 24 * 60 * 60, count: 1000 },
     removeOnFail: false,
   },
 });
 
-// Dead-letter queue: jobs that exhaust all retries are moved here by the
-// worker's `failed` handler (workers/email.worker.ts).
 export const emailDeadLetterQueue = new Queue(EMAIL_DLQ_NAME, {
   connection: redisConnection,
   defaultJobOptions: {

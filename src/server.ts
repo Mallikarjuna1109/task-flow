@@ -34,7 +34,6 @@ async function main(): Promise<void> {
       }
     });
 
-    // Force-exit if connections don't close in time.
     setTimeout(() => {
       logger.error('Forced shutdown after timeout');
       process.exit(1);

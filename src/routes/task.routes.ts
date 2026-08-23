@@ -12,7 +12,6 @@ import {
   updateTaskSchema,
 } from '../validators/task.validator';
 
-// mergeParams: true is required to read :projectId from the parent router.
 const router = Router({ mergeParams: true });
 
 router.post('/', validate(createTaskSchema), taskController.create);

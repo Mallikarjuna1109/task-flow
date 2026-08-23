@@ -68,7 +68,6 @@ describe('Validation & consistent error responses', () => {
       .send({ email: 'plain-member@delete-test.test', role: 'member' })
       .expect(201);
 
-    // Re-login so the token's active org becomes admin's org (most-recently-joined membership).
     const memberLogin = await request(app)
       .post('/auth/login')
       .send({ email: 'plain-member@delete-test.test', password: 'Password123!' })

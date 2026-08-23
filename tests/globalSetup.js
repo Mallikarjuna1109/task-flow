@@ -1,6 +1,3 @@
-// Best-effort: warns instead of hard-failing so `npm run test:unit` still
-// works with no DB running at all. Integration tests fail individually if
-// the DB is truly unreachable.
 const { execSync } = require('child_process');
 require('dotenv').config();
 

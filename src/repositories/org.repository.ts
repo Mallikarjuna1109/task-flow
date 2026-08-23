@@ -24,7 +24,6 @@ export const orgRepository = {
     });
   },
 
-  // Ordered most-recently-joined first - see authService.resolvePrimaryMembership.
   findMembershipsForUser(userId: string) {
     return prisma.orgMember.findMany({
       where: { userId },

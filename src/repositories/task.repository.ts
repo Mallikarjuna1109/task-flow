@@ -10,7 +10,6 @@ export interface TaskFilters {
   search?: string;
 }
 
-// A task has no org_id column of its own - tenancy is enforced via project.orgId.
 function scopedWhere(orgId: string, projectId: string, filters: TaskFilters = {}): Prisma.TaskWhereInput {
   const where: Prisma.TaskWhereInput = {
     projectId,
@@ -67,7 +66,6 @@ export const taskRepository = {
     });
   },
 
-  // No org filter - only for deciding 404 vs 403, never to return data to the caller.
   findByIdUnscoped(taskId: string) {
     return prisma.task.findFirst({ where: { id: taskId, deletedAt: null } });
   },

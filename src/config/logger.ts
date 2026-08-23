@@ -1,7 +1,6 @@
 import pino from 'pino';
 import { env } from './env';
 
-// Redact secrets so they never end up in logs.
 export const logger = pino({
   level: env.logLevel,
   redact: {

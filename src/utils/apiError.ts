@@ -1,5 +1,3 @@
-// Consistent API error shape required by the spec:
-// { "error": "message", "code": "MACHINE_CODE", "details": {} }
 export class ApiError extends Error {
   public readonly statusCode: number;
   public readonly code: string;

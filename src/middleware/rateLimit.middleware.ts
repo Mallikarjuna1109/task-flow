@@ -6,7 +6,6 @@ export const authRateLimiter = rateLimit({
   max: env.authRateLimitMax,
   standardHeaders: true,
   legacyHeaders: false,
-  // Skipped in tests to avoid throttling on a shared IP.
   skip: () => env.isTest,
   handler: (_req, res) => {
     res.status(429).json({

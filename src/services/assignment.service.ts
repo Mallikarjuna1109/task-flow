@@ -11,16 +11,6 @@ import { logger } from '../config/logger';
 
 const DEDUPE_WINDOW_MS = 5000;
 
-/**
- * Consistency strategy: the task_assignment row is written first and is the
- * source of truth the API responds with. Enqueueing the email job into
- * BullMQ/Redis afterward is a best-effort side effect (Postgres and Redis
- * can't share a transaction) - if it fails, we mark notification_status =
- * 'failed' and log it rather than rolling back or failing the request. The
- * worker's reconciliation sweep (workers/index.ts) later retries any
- * assignment stuck in pending/failed, making delivery eventually consistent
- * without ever blocking the assignment itself on a Redis outage.
- */
 export const assignmentService = {
   async assign(auth: AuthContext, projectId: string, taskId: string, assigneeUserId: string) {
     const task = await taskRepository.findRawById(auth.orgId, taskId);
@@ -81,8 +71,6 @@ export const assignmentService = {
     }
   },
 
-  // Never throws - returns the updated assignment row, or null only if the
-  // DB bookkeeping update itself also failed.
   async enqueueNotification(
     assignmentId: string,
     data: {

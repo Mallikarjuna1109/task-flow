@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-// Registration always creates a brand new org (registrant becomes org_admin).
-// Joining an existing org happens via the member-management endpoints.
 export const registerSchema = z.object({
   body: z.object({
     email: z.string().trim().toLowerCase().email(),

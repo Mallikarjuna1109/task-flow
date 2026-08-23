@@ -36,8 +36,6 @@ function slugify(name: string): string {
   return `${base || 'org'}-${randomUUID().slice(0, 8)}`;
 }
 
-// A user's active org context is their most-recently-joined membership -
-// there is no multi-org-switching endpoint in scope for this assignment.
 async function resolvePrimaryMembership(userId: string) {
   const memberships = await orgRepository.findMembershipsForUser(userId);
   if (memberships.length === 0) {
@@ -107,8 +105,6 @@ export const authService = {
 
   async login(email: string, password: string, meta: { userAgent?: string | null; ipAddress?: string | null }) {
     const user = await userRepository.findByEmail(email);
-    // Always hash-compare against something, even for an unknown email, to
-    // avoid leaking account existence via timing.
     const passwordHash = user?.passwordHash ?? '$2b$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinva';
     const passwordValid = await verifyPassword(password, passwordHash);
 
@@ -144,7 +140,6 @@ export const authService = {
       throw ApiError.unauthorized('INVALID_REFRESH_TOKEN', 'Refresh token is invalid or expired');
     }
     if (stored.revokedAt) {
-      // Reuse of a revoked token signals possible theft - revoke everything.
       logger.warn({ userId: stored.userId }, 'Refresh token reuse detected - revoking all sessions');
       await refreshTokenRepository.revokeAllForUser(stored.userId);
       throw ApiError.unauthorized('REFRESH_TOKEN_REUSED', 'Refresh token has already been used');

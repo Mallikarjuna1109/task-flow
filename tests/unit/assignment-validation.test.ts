@@ -8,8 +8,6 @@ jest.mock('../../src/repositories/task.repository');
 jest.mock('../../src/repositories/assignment.repository');
 jest.mock('../../src/repositories/org.repository');
 jest.mock('../../src/repositories/user.repository');
-// jobs/jobIds.ts is pure (no Redis import), so its real implementation is
-// used here instead of mocking jobs/queues.ts (which opens a live connection).
 import { assignmentNotificationJobId } from '../../src/jobs/jobIds';
 
 jest.mock('../../src/jobs/queues', () => ({

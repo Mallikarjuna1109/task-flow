@@ -2,7 +2,6 @@ import { NextFunction, Request, Response } from 'express';
 import { verifyAccessToken } from '../auth/jwt';
 import { ApiError } from '../utils/apiError';
 
-// orgId/role come only from the signed token, never from client input.
 export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {

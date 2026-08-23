@@ -27,7 +27,6 @@ export const jobService = {
       throw ApiError.notFound('JOB_NOT_FOUND', 'Job not found', {});
     }
 
-    // Tenant isolation: the job's task must belong to the caller's org.
     const data = job.data as AssignmentEmailJobData;
     if (data?.taskId) {
       const task = await taskRepository.findRawById(auth.orgId, data.taskId);

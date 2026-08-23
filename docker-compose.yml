@@ -33,7 +33,6 @@ services:
     networks:
       - taskflow_net
 
-  # One-shot: applies migrations + seeds. api/worker wait for it to complete.
   migrate:
     build:
       context: .

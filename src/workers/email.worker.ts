@@ -28,7 +28,6 @@ export function createEmailWorker(): Worker<AssignmentEmailJobData> {
       'Assignment email job attempt failed',
     );
 
-    // Retries exhausted -> move to the dead-letter queue and report failed.
     if (job.attemptsMade >= attempts) {
       logger.error({ jobId: job.id, assignmentId: job.data.assignmentId }, 'Assignment email job exhausted retries - moving to DLQ');
       await emailDeadLetterQueue.add(

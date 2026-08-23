@@ -1,6 +1,5 @@
 import { Role } from '@prisma/client';
 
-// orgId/role are resolved server-side and attached to req.auth - never read from client input.
 export interface AuthContext {
   userId: string;
   email: string;
@@ -9,7 +8,7 @@ export interface AuthContext {
 }
 
 export interface AccessTokenPayload {
-  sub: string; // userId
+  sub: string;
   email: string;
   orgId: string;
   role: Role;
@@ -17,8 +16,8 @@ export interface AccessTokenPayload {
 }
 
 export interface RefreshTokenPayload {
-  sub: string; // userId
-  jti: string; // refresh token id (matches refresh_tokens.id)
+  sub: string;
+  jti: string;
   type: 'refresh';
 }
 

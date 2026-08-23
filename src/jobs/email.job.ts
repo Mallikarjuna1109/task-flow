@@ -2,9 +2,6 @@ import { Job } from 'bullmq';
 import { logger } from '../config/logger';
 import { AssignmentEmailJobData } from './queues';
 
-// Mock email delivery, structured like a real provider integration
-// (SendGrid, SES, ...) would be - swap mockSendEmail for a real API call to
-// go to production.
 export async function processAssignmentEmailJob(job: Job<AssignmentEmailJobData>): Promise<{ delivered: true; to: string }> {
   const { assigneeEmail, assigneeName, taskTitle, taskId } = job.data;
 

@@ -2,8 +2,6 @@ import { assignmentRepository } from '../repositories/assignment.repository';
 import { assignmentService } from '../services/assignment.service';
 import { logger } from '../config/logger';
 
-// Part of the consistency strategy in services/assignment.service.ts: finds
-// assignments whose email job never made it into Redis and retries them.
 export async function runNotificationReconciliationSweep(): Promise<number> {
   const pending = await assignmentRepository.findPendingNotifications();
   if (pending.length === 0) return 0;

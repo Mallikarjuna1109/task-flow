@@ -2,9 +2,6 @@ import request from 'supertest';
 import { app, registerUser, createProject, createTask } from './helpers';
 import { emailQueue, assignmentNotificationJobId } from '../../src/jobs/queues';
 
-// Regression coverage: BullMQ rejects a jobId containing ':' unless it
-// splits into exactly 3 parts - see jobs/jobIds.ts. The jobId here is built
-// via assignmentNotificationJobId(), not re-hardcoded, so it can't drift.
 describe('Task assignment creates a BullMQ notification job', () => {
   it('enqueues a real job, and the assignment response reflects it after enqueueing (not the stale pre-enqueue state)', async () => {
     const user = await registerUser();

@@ -1,8 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 
-// orgId is mandatory on every method and always folded into the `where`
-// clause - this is the tenant-isolation enforcement point.
 export const projectRepository = {
   create(orgId: string, data: { name: string; description?: string | null; createdById: string }) {
     return prisma.project.create({
@@ -16,7 +14,6 @@ export const projectRepository = {
     });
   },
 
-  // No org filter - only for deciding 404 vs 403, never to return data to the caller.
   findByIdUnscoped(projectId: string) {
     return prisma.project.findFirst({ where: { id: projectId, deletedAt: null } });
   },

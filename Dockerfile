@@ -1,7 +1,5 @@
-# docker-compose.yml selects the `api` or `worker` build target below.
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
-# openssl is required by the Prisma query engine on Debian-based images.
 RUN apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 
 FROM base AS deps

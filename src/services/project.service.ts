@@ -18,8 +18,6 @@ export const projectService = {
     const project = await projectRepository.findById(auth.orgId, projectId);
     if (project) return project;
 
-    // Distinguish "does not exist" (404) from "exists in another org" (403)
-    // without ever returning the other org's project fields to the caller.
     const existsElsewhere = await projectRepository.findByIdUnscoped(projectId);
     if (existsElsewhere) {
       throw ApiError.forbidden('FORBIDDEN', 'You do not have access to this resource', {});
