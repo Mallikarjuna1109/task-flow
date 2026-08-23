@@ -28,6 +28,10 @@
         },
         "required": ["error", "code", "details"]
       },
+      "HealthResponse": {
+        "type": "object",
+        "properties": { "status": { "type": "string", "example": "ok" } }
+      },
       "RegisterRequest": {
         "type": "object",
         "required": ["email", "password", "name", "organizationName"],
@@ -79,6 +83,54 @@
           "expiresIn": { "type": "string", "example": "15m" }
         }
       },
+      "OrgMember": {
+        "type": "object",
+        "description": "Raw membership row - returned as-is by add-member and update-role.",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "orgId": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "role": { "type": "string", "enum": ["org_admin", "member"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "OrgMemberWithUser": {
+        "type": "object",
+        "description": "Membership row with the nested user - returned by list-members.",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "orgId": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "role": { "type": "string", "enum": ["org_admin", "member"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "email": { "type": "string" },
+              "name": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "OrgMemberListResponse": {
+        "type": "object",
+        "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/OrgMemberWithUser" } } }
+      },
+      "AddMemberRequest": {
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string", "enum": ["org_admin", "member"], "default": "member" }
+        }
+      },
+      "UpdateMemberRoleRequest": {
+        "type": "object",
+        "required": ["role"],
+        "properties": { "role": { "type": "string", "enum": ["org_admin", "member"] } }
+      },
       "Project": {
         "type": "object",
         "properties": {
@@ -127,6 +179,27 @@
           }
         }
       },
+      "TaskAssignmentWithUser": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "taskId": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "assignedById": { "type": "string", "format": "uuid", "nullable": true },
+          "notificationStatus": { "type": "string", "enum": ["pending", "queued", "failed"] },
+          "notificationJobId": { "type": "string", "nullable": true },
+          "notificationAttempts": { "type": "integer" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "name": { "type": "string" },
+              "email": { "type": "string" }
+            }
+          }
+        }
+      },
       "Task": {
         "type": "object",
         "properties": {
@@ -140,7 +213,12 @@
           "createdById": { "type": "string", "format": "uuid", "nullable": true },
           "deletedAt": { "type": "string", "format": "date-time", "nullable": true },
           "createdAt": { "type": "string", "format": "date-time" },
-          "updatedAt": { "type": "string", "format": "date-time" }
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "assignments": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TaskAssignmentWithUser" },
+            "description": "Present on GET (single/list) and PATCH responses. Absent on the POST create response."
+          }
         }
       },
       "CreateTaskRequest": {
@@ -181,6 +259,10 @@
           "status": { "type": "string", "enum": ["todo", "in_progress", "review", "done"] }
         }
       },
+      "BulkUpdateStatusResponse": {
+        "type": "object",
+        "properties": { "updated": { "type": "integer", "description": "Number of tasks whose status was changed." } }
+      },
       "AssignTaskRequest": {
         "type": "object",
         "required": ["userId"],
@@ -195,6 +277,7 @@
           "assignedById": { "type": "string", "format": "uuid", "nullable": true },
           "notificationStatus": { "type": "string", "enum": ["pending", "queued", "failed"] },
           "notificationJobId": { "type": "string", "nullable": true },
+          "notificationAttempts": { "type": "integer" },
           "createdAt": { "type": "string", "format": "date-time" }
         }
       },
@@ -205,6 +288,7 @@
       },
       "Comment": {
         "type": "object",
+        "description": "Returned as-is by POST (create) - no nested author.",
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "taskId": { "type": "string", "format": "uuid" },
@@ -213,18 +297,43 @@
           "createdAt": { "type": "string", "format": "date-time" }
         }
       },
-      "AddMemberRequest": {
+      "CommentWithAuthor": {
         "type": "object",
-        "required": ["email"],
+        "description": "Returned by GET (list) - includes the nested author.",
         "properties": {
-          "email": { "type": "string", "format": "email" },
-          "role": { "type": "string", "enum": ["org_admin", "member"], "default": "member" }
+          "id": { "type": "string", "format": "uuid" },
+          "taskId": { "type": "string", "format": "uuid" },
+          "authorId": { "type": "string", "format": "uuid" },
+          "body": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "author": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "name": { "type": "string" },
+              "email": { "type": "string" }
+            }
+          }
         }
       },
-      "UpdateMemberRoleRequest": {
+      "CommentListResponse": {
         "type": "object",
-        "required": ["role"],
-        "properties": { "role": { "type": "string", "enum": ["org_admin", "member"] } }
+        "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/CommentWithAuthor" } } }
+      },
+      "TaskSearchResult": {
+        "type": "object",
+        "description": "Raw SQL projection (bonus full-text search) - field names are snake_case as returned by the query, not the camelCase Task shape.",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "project_id": { "type": "string", "format": "uuid" },
+          "rank": { "type": "number", "description": "PostgreSQL ts_rank relevance score." }
+        }
+      },
+      "TaskSearchListResponse": {
+        "type": "object",
+        "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/TaskSearchResult" } } }
       },
       "JobStatus": {
         "type": "object",
@@ -267,7 +376,9 @@
         "tags": ["Health"],
         "summary": "Liveness check",
         "security": [],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthResponse" } } } }
+        }
       }
     },
     "/auth/register": {
@@ -292,6 +403,7 @@
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } } },
         "responses": {
           "200": { "description": "Logged in", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
           "401": { "description": "Invalid credentials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
           "429": { "description": "Rate limited (10 req/min/IP)" }
         }
@@ -305,6 +417,7 @@
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } } },
         "responses": {
           "200": { "description": "New token pair", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
           "401": { "description": "Invalid/expired/reused refresh token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
           "429": { "description": "Rate limited (10 req/min/IP)" }
         }
@@ -318,6 +431,7 @@
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LogoutRequest" } } } },
         "responses": {
           "204": { "description": "Logged out" },
+          "400": { "$ref": "#/components/responses/ValidationError" },
           "429": { "description": "Rate limited (10 req/min/IP)" }
         }
       }
@@ -326,16 +440,22 @@
       "get": {
         "tags": ["Organizations"],
         "summary": "List members of the authenticated user's organization",
-        "responses": { "200": { "description": "OK" }, "401": { "$ref": "#/components/responses/Unauthenticated" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrgMemberListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }
+        }
       },
       "post": {
         "tags": ["Organizations"],
         "summary": "Add an existing registered user to the organization (org_admin only)",
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AddMemberRequest" } } } },
         "responses": {
-          "201": { "description": "Member added" },
+          "201": { "description": "Member added", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrgMember" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
           "403": { "$ref": "#/components/responses/Forbidden" },
-          "404": { "description": "No registered user with this email" }
+          "404": { "description": "No registered user with this email", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "409": { "description": "User is already a member of this organization", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -345,13 +465,25 @@
         "summary": "Change a member's role (org_admin only)",
         "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateMemberRoleRequest" } } } },
-        "responses": { "200": { "description": "Updated" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrgMember" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "This user is not a member of your organization", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
       },
       "delete": {
         "tags": ["Organizations"],
         "summary": "Remove a member from the organization (org_admin only)",
         "parameters": [{ "name": "userId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "204": { "description": "Removed" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "204": { "description": "Removed" },
+          "400": { "description": "Cannot remove your own membership", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "This user is not a member of your organization", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
       }
     },
     "/projects": {
@@ -359,7 +491,11 @@
         "tags": ["Projects"],
         "summary": "Create a project in the authenticated user's organization",
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProjectRequest" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } }, "400": { "$ref": "#/components/responses/ValidationError" } }
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }
+        }
       },
       "get": {
         "tags": ["Projects"],
@@ -368,7 +504,10 @@
           { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
         ],
-        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectListResponse" } } } } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }
+        }
       }
     },
     "/projects/{projectId}": {
@@ -376,20 +515,36 @@
         "tags": ["Projects"],
         "summary": "Get a project by id",
         "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       },
       "patch": {
         "tags": ["Projects"],
         "summary": "Update a project",
         "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateProjectRequest" } } } },
-        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } }, "400": { "$ref": "#/components/responses/ValidationError" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       },
       "delete": {
         "tags": ["Projects"],
         "summary": "Soft-delete a project (org_admin only)",
         "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "204": { "description": "Deleted" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       }
     },
     "/projects/{projectId}/dashboard": {
@@ -397,7 +552,12 @@
         "tags": ["Projects"],
         "summary": "Task counts grouped by status for a project",
         "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Dashboard" } } } } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Dashboard" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       }
     },
     "/projects/{projectId}/tasks": {
@@ -406,7 +566,13 @@
         "summary": "Create a task in a project",
         "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTaskRequest" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } }, "400": { "$ref": "#/components/responses/ValidationError" } }
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "Project not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
       },
       "get": {
         "tags": ["Tasks"],
@@ -421,7 +587,12 @@
           { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
         ],
-        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskListResponse" } } } } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "Project not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
       }
     },
     "/projects/{projectId}/tasks/bulk-status": {
@@ -430,7 +601,13 @@
         "summary": "Bonus: bulk-update the status of multiple tasks in a project",
         "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BulkUpdateStatusRequest" } } } },
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BulkUpdateStatusResponse" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "Project not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
       }
     },
     "/projects/{projectId}/tasks/{taskId}": {
@@ -441,7 +618,12 @@
           { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
           { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
-        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       },
       "patch": {
         "tags": ["Tasks"],
@@ -451,7 +633,13 @@
           { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateTaskRequest" } } } },
-        "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } }, "400": { "$ref": "#/components/responses/ValidationError" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       },
       "delete": {
         "tags": ["Tasks"],
@@ -460,7 +648,12 @@
           { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
           { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
-        "responses": { "204": { "description": "Deleted" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       }
     },
     "/projects/{projectId}/tasks/{taskId}/assignments": {
@@ -475,9 +668,11 @@
         "responses": {
           "201": { "description": "Assignment persisted AND the notification job was successfully enqueued (notificationStatus: queued)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskAssignment" } } } },
           "202": { "description": "Assignment persisted, but enqueueing the notification job failed (notificationStatus: failed); a background reconciliation sweep will retry enqueueing it - no client action needed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskAssignment" } } } },
-          "400": { "description": "Assignee not in the same organization" },
+          "400": { "description": "Assignee not in the same organization", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" },
-          "409": { "description": "Already assigned (outside the 5s dedupe window)" }
+          "409": { "description": "Already assigned (outside the 5s dedupe window)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -490,7 +685,12 @@
           { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
           { "name": "userId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
-        "responses": { "204": { "description": "Unassigned" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "204": { "description": "Unassigned" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "Task not found, or this user is not assigned to it", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
       }
     },
     "/projects/{projectId}/tasks/{taskId}/comments": {
@@ -502,7 +702,13 @@
           { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCommentRequest" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Comment" } } } } }
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Comment" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       },
       "get": {
         "tags": ["Tasks"],
@@ -511,7 +717,12 @@
           { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
           { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       }
     },
     "/tasks/search": {
@@ -523,7 +734,11 @@
           { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
         ],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskSearchListResponse" } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }
+        }
       }
     },
     "/jobs/{id}": {
@@ -533,6 +748,8 @@
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
         "responses": {
           "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobStatus" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       }

@@ -75,7 +75,9 @@ model OrgMember {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, userId])
+  // Supports resolving a user's org memberships (role + tenant context) at login/refresh.
   @@index([userId])
+  // Supports tenant-scoped member listing.
   @@index([orgId])
   @@map("org_members")
 }
@@ -94,7 +96,9 @@ model Project {
   createdBy    User?        @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   tasks        Task[]
 
+  // Supports tenant-scoped project listing and lookup.
   @@index([orgId])
+  // Supports tenant + soft-delete filtering.
   @@index([orgId, deletedAt])
   @@map("projects")
 }
@@ -119,10 +123,15 @@ model Task {
 
   searchVector Unsupported("tsvector")? @map("search_vector")
 
+  // Supports listing tasks within a project (the primary task query).
   @@index([projectId])
+  // Supports the project dashboard's status grouping and the task status filter.
   @@index([projectId, status])
+  // Supports the task priority filter.
   @@index([priority])
+  // Supports the task due-date range filter.
   @@index([dueDate])
+  // Supports full-text search on task title/description (bonus feature).
   @@index([searchVector], type: Gin)
   @@map("tasks")
 }
@@ -142,8 +151,11 @@ model TaskAssignment {
   assignedBy User? @relation("AssignedByUser", fields: [assignedById], references: [id], onDelete: SetNull)
 
   @@unique([taskId, userId])
+  // Supports the assignee filter on task listing ("my tasks").
   @@index([userId])
   @@index([taskId])
+  // Supports the worker's reconciliation sweep, which scans for assignments
+  // whose notification job failed to enqueue and must be retried.
   @@index([notificationStatus])
   @@map("task_assignments")
 }
@@ -176,6 +188,7 @@ model RefreshToken {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Supports revoking all refresh tokens for a user (logout-all-devices bonus).
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")

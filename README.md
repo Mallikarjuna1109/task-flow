@@ -248,7 +248,15 @@ Coverage highlights:
 
 ## 18. Postman/Bruno Collection Usage
 
-Import both files from `postman/`: `TaskFlow.postman_collection.json` and `TaskFlow.postman_environment.json`. Select the "TaskFlow Local" environment, then run **Auth → Register** first - its test script automatically stores `accessToken`, `refreshToken`, `orgId` and `userId` as collection variables that every subsequent request reuses (via `{{accessToken}}` etc.), so the whole collection works without manual edits.
+Import both files from `postman/`: `TaskFlow.postman_collection.json` and `TaskFlow.postman_environment.json`. Select the "TaskFlow Local" environment, then either run individual requests top-to-bottom or use Postman's **Run collection** to execute the whole thing in one go - it is safe to run sequentially end to end with zero manual edits.
+
+The 10 folders are numbered in the exact order they're meant to run: `1. Auth → 2. Organization & Members → 3. Projects → 4. Task CRUD → 5. Task Filters & Search → 6. Assignment & Job Status → 7. Comments → 8. Unassignment → 9. Health → 10. Cleanup (Destructive)`. Destructive requests (`Delete task`, `Delete project`) live **only** in the final Cleanup folder, so nothing is torn down before a later request needs it.
+
+Chained collection variables (all set automatically by test scripts, never hand-edited):
+- **Auth → Register** stores `accessToken`, `refreshToken`, `orgId`, `userId`, `primaryEmail` (the dynamically-generated email, so **Login** right after it authenticates as the same user instead of a hardcoded one).
+- **Organization & Members → Register second user** (a second, throwaway registration) stores `secondUserEmail`, which **Add member** uses to invite a real, guaranteed-to-exist user - no dependency on seed data - and **Add member**'s own response stores `memberUserId`, which **Update member role** and **Remove member** then target.
+- **Projects → Create project** stores `projectId`; **Task CRUD → Create task** stores `taskId`.
+- **Assignment & Job Status → Assign task** stores `assigneeUserId` and, from the actual assignment id in the response, `jobId` as `assignment-email-<assignmentId>` (the real BullMQ job id convention - no colon, nothing to copy/paste) - so **Get job status** resolves `GET {{baseUrl}}/jobs/{{jobId}}` automatically.
 
 ## 19. Important Technical Decisions
 

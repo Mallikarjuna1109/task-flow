@@ -2,7 +2,7 @@
   "info": {
     "name": "TaskFlow API",
     "_postman_id": "8f2a9c2e-6b1b-4c8a-9f3a-1a2b3c4d5e6f",
-    "description": "TaskFlow backend - multi-tenant project management API. Import this collection alongside its environment; every request uses {{baseUrl}} and chained variables set automatically by each request's test script, so the collection works end-to-end without manual edits.",
+    "description": "TaskFlow backend - multi-tenant project management API. Import this collection alongside its environment; every request uses {{baseUrl}} and chained variables set automatically by each request's test script, so the collection works end-to-end without manual edits. Folders are numbered in safe execution order: run the whole collection top-to-bottom and destructive requests (project/task deletion) only happen in the final '10. Cleanup' folder, after every other request that needs those resources has already run.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -11,6 +11,10 @@
     { "key": "refreshToken", "value": "" },
     { "key": "orgId", "value": "" },
     { "key": "userId", "value": "" },
+    { "key": "primaryEmail", "value": "" },
+    { "key": "secondUserEmail", "value": "" },
+    { "key": "secondUserId", "value": "" },
+    { "key": "memberUserId", "value": "" },
     { "key": "projectId", "value": "" },
     { "key": "taskId", "value": "" },
     { "key": "jobId", "value": "" },
@@ -18,7 +22,7 @@
   ],
   "item": [
     {
-      "name": "Auth",
+      "name": "1. Auth",
       "item": [
         {
           "name": "Register",
@@ -41,7 +45,8 @@
                   "pm.collectionVariables.set('accessToken', body.accessToken);",
                   "pm.collectionVariables.set('refreshToken', body.refreshToken);",
                   "pm.collectionVariables.set('orgId', body.user.orgId);",
-                  "pm.collectionVariables.set('userId', body.user.id);"
+                  "pm.collectionVariables.set('userId', body.user.id);",
+                  "pm.collectionVariables.set('primaryEmail', body.user.email);"
                 ]
               }
             }
@@ -55,7 +60,7 @@
             "url": "{{baseUrl}}/auth/login",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"alice@acme.test\",\n  \"password\": \"Password123!\"\n}"
+              "raw": "{\n  \"email\": \"{{primaryEmail}}\",\n  \"password\": \"Password123!\"\n}"
             }
           },
           "event": [
@@ -110,7 +115,191 @@
       ]
     },
     {
-      "name": "Projects",
+      "name": "2. Organization & Members",
+      "item": [
+        {
+          "name": "List members",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/organizations/members"
+          }
+        },
+        {
+          "name": "Register second user (support request, for member tests)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"member+{{$timestamp}}@example.test\",\n  \"password\": \"Password123!\",\n  \"name\": \"Bob Member\",\n  \"organizationName\": \"Throwaway Org {{$timestamp}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('secondUserEmail', body.user.email);",
+                  "  pm.collectionVariables.set('secondUserId', body.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add member (org_admin only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/organizations/members",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{secondUserEmail}}\",\n  \"role\": \"member\"\n}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('memberUserId', body.userId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update member role (org_admin only)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/organizations/members/{{memberUserId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"org_admin\"\n}" }
+          },
+          "response": [
+            {
+              "name": "200 OK - role updated",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+                ],
+                "url": "{{baseUrl}}/organizations/members/{{memberUserId}}",
+                "body": { "mode": "raw", "raw": "{\n  \"role\": \"org_admin\"\n}" }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "cookie": [],
+              "body": "{\n  \"id\": \"3b1e6b0a-9c2e-4b7a-9b0a-2f2b6a6b1c3d\",\n  \"orgId\": \"8d1b1e2f-4a3c-4e5b-9f6a-1b2c3d4e5f6a\",\n  \"userId\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"role\": \"org_admin\",\n  \"createdAt\": \"2026-01-15T10:00:00.000Z\"\n}"
+            },
+            {
+              "name": "403 Forbidden - caller is not org_admin",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+                ],
+                "url": "{{baseUrl}}/organizations/members/{{memberUserId}}",
+                "body": { "mode": "raw", "raw": "{\n  \"role\": \"org_admin\"\n}" }
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "cookie": [],
+              "body": "{\n  \"error\": \"This action requires the org_admin role\",\n  \"code\": \"FORBIDDEN\",\n  \"details\": {}\n}"
+            },
+            {
+              "name": "404 Not Found - user is not a member of this org",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+                ],
+                "url": "{{baseUrl}}/organizations/members/{{memberUserId}}",
+                "body": { "mode": "raw", "raw": "{\n  \"role\": \"org_admin\"\n}" }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "cookie": [],
+              "body": "{\n  \"error\": \"This user is not a member of your organization\",\n  \"code\": \"MEMBER_NOT_FOUND\",\n  \"details\": {}\n}"
+            }
+          ]
+        },
+        {
+          "name": "Remove member (org_admin only)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/organizations/members/{{memberUserId}}"
+          },
+          "response": [
+            {
+              "name": "204 No Content - member removed",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                "url": "{{baseUrl}}/organizations/members/{{memberUserId}}"
+              },
+              "status": "No Content",
+              "code": 204,
+              "_postman_previewlanguage": "json",
+              "header": [],
+              "cookie": [],
+              "body": ""
+            },
+            {
+              "name": "400 Bad Request - cannot remove your own membership",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                "url": "{{baseUrl}}/organizations/members/{{userId}}"
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "cookie": [],
+              "body": "{\n  \"error\": \"You cannot remove your own membership\",\n  \"code\": \"CANNOT_REMOVE_SELF\",\n  \"details\": {}\n}"
+            },
+            {
+              "name": "403 Forbidden - caller is not org_admin",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+                "url": "{{baseUrl}}/organizations/members/{{memberUserId}}"
+              },
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }],
+              "cookie": [],
+              "body": "{\n  \"error\": \"This action requires the org_admin role\",\n  \"code\": \"FORBIDDEN\",\n  \"details\": {}\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Projects",
       "item": [
         {
           "name": "Create project",
@@ -165,19 +354,11 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
             "url": "{{baseUrl}}/projects/{{projectId}}/dashboard"
           }
-        },
-        {
-          "name": "Delete project",
-          "request": {
-            "method": "DELETE",
-            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/projects/{{projectId}}"
-          }
         }
       ]
     },
     {
-      "name": "Tasks",
+      "name": "4. Task CRUD",
       "item": [
         {
           "name": "Create task",
@@ -199,14 +380,6 @@
               "script": { "exec": ["if (pm.response.code === 201) { pm.collectionVariables.set('taskId', pm.response.json().id); }"] }
             }
           ]
-        },
-        {
-          "name": "List tasks (with filters)",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/projects/{{projectId}}/tasks?status=todo&priority=high&page=1&limit=20"
-          }
         },
         {
           "name": "Get task",
@@ -239,7 +412,33 @@
             "url": "{{baseUrl}}/projects/{{projectId}}/tasks/bulk-status",
             "body": { "mode": "raw", "raw": "{\n  \"taskIds\": [\"{{taskId}}\"],\n  \"status\": \"review\"\n}" }
           }
+        }
+      ]
+    },
+    {
+      "name": "5. Task Filters & Search",
+      "item": [
+        {
+          "name": "List tasks (with filters)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/projects/{{projectId}}/tasks?status=review&priority=high&page=1&limit=20"
+          }
         },
+        {
+          "name": "Search tasks (full-text, bonus)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/tasks/search?q=homepage"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Assignment & Job Status",
+      "item": [
         {
           "name": "Assign task",
           "request": {
@@ -254,18 +453,31 @@
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["if (pm.response.code === 201 || pm.response.code === 202) { pm.collectionVariables.set('assigneeUserId', pm.response.json().userId); }"] }
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 202) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('assigneeUserId', body.userId);",
+                  "  pm.collectionVariables.set('jobId', 'assignment-email-' + body.id);",
+                  "}"
+                ]
+              }
             }
           ]
         },
         {
-          "name": "Unassign task",
+          "name": "Get job status",
           "request": {
-            "method": "DELETE",
+            "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/projects/{{projectId}}/tasks/{{taskId}}/assignments/{{assigneeUserId}}"
+            "url": "{{baseUrl}}/jobs/{{jobId}}"
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "7. Comments",
+      "item": [
         {
           "name": "Add comment",
           "request": {
@@ -285,15 +497,31 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
             "url": "{{baseUrl}}/projects/{{projectId}}/tasks/{{taskId}}/comments"
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "8. Unassignment",
+      "item": [
         {
-          "name": "Search tasks (full-text, bonus)",
+          "name": "Unassign task",
           "request": {
-            "method": "GET",
+            "method": "DELETE",
             "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/tasks/search?q=homepage"
+            "url": "{{baseUrl}}/projects/{{projectId}}/tasks/{{taskId}}/assignments/{{assigneeUserId}}"
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "9. Health",
+      "item": [
+        { "name": "Health check", "request": { "method": "GET", "url": "{{baseUrl}}/health" } }
+      ]
+    },
+    {
+      "name": "10. Cleanup (Destructive)",
+      "item": [
         {
           "name": "Delete task",
           "request": {
@@ -301,51 +529,15 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
             "url": "{{baseUrl}}/projects/{{projectId}}/tasks/{{taskId}}"
           }
-        }
-      ]
-    },
-    {
-      "name": "Organizations",
-      "item": [
-        {
-          "name": "List members",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/organizations/members"
-          }
         },
         {
-          "name": "Add member (org_admin only)",
+          "name": "Delete project",
           "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/organizations/members",
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"bob@acme.test\",\n  \"role\": \"member\"\n}" }
-          }
-        }
-      ]
-    },
-    {
-      "name": "Jobs",
-      "item": [
-        {
-          "name": "Get job status",
-          "request": {
-            "method": "GET",
+            "method": "DELETE",
             "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
-            "url": "{{baseUrl}}/jobs/{{jobId}}"
+            "url": "{{baseUrl}}/projects/{{projectId}}"
           }
         }
-      ]
-    },
-    {
-      "name": "Health",
-      "item": [
-        { "name": "Health check", "request": { "method": "GET", "url": "{{baseUrl}}/health" } }
       ]
     }
   ]
