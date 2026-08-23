@@ -1,4 +1,4 @@
-import { NotificationStatus } from '@prisma/client';
+import { NotificationStatus, TaskAssignment } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { taskRepository } from '../repositories/task.repository';
 import { assignmentRepository } from '../repositories/assignment.repository';
@@ -70,7 +70,7 @@ export const assignmentService = {
       assignmentRepository.create({ taskId, userId: assigneeUserId, assignedById: auth.userId }, tx),
     );
 
-    await this.enqueueNotification(assignment.id, {
+    const updated = await this.enqueueNotification(assignment.id, {
       assignmentId: assignment.id,
       taskId: task.id,
       taskTitle: task.title,
@@ -81,7 +81,13 @@ export const assignmentService = {
       assignedByUserId: auth.userId,
     });
 
-    return assignment;
+    // Return the row as it stands *after* enqueueing was attempted, so the
+    // response's notificationStatus/notificationJobId reflect what actually
+    // happened (queued + real job id, or failed) rather than the stale
+    // pre-enqueue snapshot. Only fall back to the pre-enqueue object if even
+    // the bookkeeping update itself failed (never let that break the
+    // otherwise-successful assignment response).
+    return updated ?? assignment;
   },
 
   async unassign(auth: AuthContext, projectId: string, taskId: string, userId: string) {
@@ -98,7 +104,18 @@ export const assignmentService = {
     }
   },
 
-  /** Enqueues the email job and records the outcome on the assignment row. Never throws. */
+  /**
+   * Enqueues the email job and records the outcome on the assignment row.
+   * Never throws - returns the updated assignment row (fresh
+   * notificationStatus/notificationJobId) on either outcome, or `null` only
+   * if the DB bookkeeping update itself also failed (in which case the
+   * caller falls back to its pre-enqueue snapshot rather than erroring).
+   *
+   * Uses `assignmentNotificationJobId(assignmentId)` as the BullMQ job id -
+   * the SAME helper used here, by the worker's DLQ push, and by the
+   * reconciliation sweep (via this same method) - so the job id convention
+   * can never drift between producers.
+   */
   async enqueueNotification(
     assignmentId: string,
     data: {
@@ -111,19 +128,25 @@ export const assignmentService = {
       assigneeName: string;
       assignedByUserId: string | null;
     },
-  ): Promise<void> {
+  ): Promise<TaskAssignment | null> {
     try {
+      // Deterministic jobId => re-adding the same assignmentId (e.g. a
+      // reconciliation retry) is a no-op against an existing job rather
+      // than a duplicate, which is what prevents duplicate emails.
       const job = await emailQueue.add('send-assignment-email', data, {
         jobId: assignmentNotificationJobId(assignmentId),
       });
-      await assignmentRepository.updateNotificationStatus(assignmentId, NotificationStatus.queued, {
+      return await assignmentRepository.updateNotificationStatus(assignmentId, NotificationStatus.queued, {
         notificationJobId: job.id,
       });
     } catch (err) {
       logger.error({ err, assignmentId }, 'Failed to enqueue assignment notification job - will be retried by reconciliation sweep');
-      await assignmentRepository
+      return await assignmentRepository
         .updateNotificationStatus(assignmentId, NotificationStatus.failed, { incrementAttempts: true })
-        .catch((updateErr) => logger.error({ err: updateErr, assignmentId }, 'Failed to record notification failure'));
+        .catch((updateErr) => {
+          logger.error({ err: updateErr, assignmentId }, 'Failed to record notification failure');
+          return null;
+        });
     }
   },
 };

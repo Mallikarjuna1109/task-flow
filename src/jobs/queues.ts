@@ -2,6 +2,8 @@ import { Queue } from 'bullmq';
 import { redisConnection } from '../config/redis';
 import { env } from '../config/env';
 
+export { assignmentNotificationJobId, deadLetterJobId } from './jobIds';
+
 export const EMAIL_QUEUE_NAME = 'email-notifications';
 export const EMAIL_DLQ_NAME = 'email-notifications-dlq';
 
@@ -40,7 +42,3 @@ export const emailDeadLetterQueue = new Queue(EMAIL_DLQ_NAME, {
   },
 });
 
-/** Deterministic job id so a duplicate assignment call within a short window naturally collapses into one job (bonus: dedupe within 5s - paired with the DB-level check in assignment.service). */
-export function assignmentNotificationJobId(assignmentId: string): string {
-  return `assignment-email:${assignmentId}`;
-}

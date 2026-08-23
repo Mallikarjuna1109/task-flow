@@ -2,7 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { createRedisConnection } from '../config/redis';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
-import { EMAIL_QUEUE_NAME, emailDeadLetterQueue, AssignmentEmailJobData } from '../jobs/queues';
+import { EMAIL_QUEUE_NAME, emailDeadLetterQueue, AssignmentEmailJobData, deadLetterJobId } from '../jobs/queues';
 import { processAssignmentEmailJob } from '../jobs/email.job';
 
 export function createEmailWorker(): Worker<AssignmentEmailJobData> {
@@ -35,7 +35,7 @@ export function createEmailWorker(): Worker<AssignmentEmailJobData> {
       await emailDeadLetterQueue.add(
         'dead-letter',
         { originalJobId: job.id, data: job.data, failedReason: err.message },
-        { jobId: `dlq:${job.id}` },
+        { jobId: deadLetterJobId(job.id as string) },
       );
     }
   });
