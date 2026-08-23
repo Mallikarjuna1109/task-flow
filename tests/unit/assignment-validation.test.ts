@@ -114,6 +114,32 @@ describe('assignmentService.assign - validation rules', () => {
     });
   });
 
+  it('returns notificationStatus "failed" (not "queued") when enqueueing fails but the assignment is still persisted', async () => {
+    (orgRepository.isUserInOrg as jest.Mock).mockResolvedValue(true);
+    (assignmentRepository.findActive as jest.Mock).mockResolvedValue(null);
+    (assignmentRepository.create as jest.Mock).mockResolvedValue({
+      id: 'assignment-1',
+      taskId: 'task-1',
+      userId: 'user-2',
+      notificationStatus: 'pending',
+      notificationJobId: null,
+    });
+    (emailQueue.add as jest.Mock).mockRejectedValueOnce(new Error('redis unreachable'));
+    (assignmentRepository.updateNotificationStatus as jest.Mock).mockResolvedValue({
+      id: 'assignment-1',
+      taskId: 'task-1',
+      userId: 'user-2',
+      notificationStatus: 'failed',
+      notificationJobId: null,
+    });
+
+    const result = await assignmentService.assign(auth, 'project-1', 'task-1', 'user-2');
+
+    expect(assignmentRepository.create).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ id: 'assignment-1', notificationStatus: 'failed', notificationJobId: null });
+    expect(result.notificationStatus).not.toBe('queued');
+  });
+
   it('falls back to the pre-enqueue assignment if enqueueing AND the failure bookkeeping update both fail', async () => {
     (orgRepository.isUserInOrg as jest.Mock).mockResolvedValue(true);
     (assignmentRepository.findActive as jest.Mock).mockResolvedValue(null);
@@ -124,8 +150,8 @@ describe('assignmentService.assign - validation rules', () => {
       notificationStatus: 'pending',
       notificationJobId: null,
     });
-    (emailQueue.add as jest.Mock).mockRejectedValue(new Error('redis unreachable'));
-    (assignmentRepository.updateNotificationStatus as jest.Mock).mockRejectedValue(new Error('db unreachable'));
+    (emailQueue.add as jest.Mock).mockRejectedValueOnce(new Error('redis unreachable'));
+    (assignmentRepository.updateNotificationStatus as jest.Mock).mockRejectedValueOnce(new Error('db unreachable'));
 
     const result = await assignmentService.assign(auth, 'project-1', 'task-1', 'user-2');
     expect(result).toMatchObject({ id: 'assignment-1', notificationStatus: 'pending' });

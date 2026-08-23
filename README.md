@@ -74,7 +74,7 @@ Tables: `users`, `organizations`, `org_members`, `projects`, `tasks`, `task_assi
 
 **Enums:** `TaskStatus {todo, in_progress, review, done}`, `TaskPriority {low, medium, high, urgent}`, `Role {org_admin, member}`, `NotificationStatus {pending, queued, failed}` (tracks whether the assignment email job made it into Redis - see §9).
 
-**Cascade / Restrict decisions** (also documented inline in `prisma/schema.prisma`):
+**Cascade / Restrict decisions:**
 
 | Relation | On delete | Why |
 |---|---|---|
@@ -91,7 +91,7 @@ Tables: `users`, `organizations`, `org_members`, `projects`, `tasks`, `task_assi
 | `comments.author_id → users` | **RESTRICT** | preserve authorship/audit trail - deleting a user with comments must be an explicit, handled operation |
 | `refresh_tokens.user_id → users` | CASCADE | sessions are meaningless without the user |
 
-**Indexes** (each justified by its query pattern in `schema.prisma` comments): `projects.org_id` (every query is tenant-scoped), `projects (org_id, deleted_at)` (soft-delete-aware listing), `tasks.project_id` / `(project_id, status)` (listing + dashboard), `tasks.priority`, `tasks.due_date` (filters), `task_assignments.user_id` / `.task_id` (assignee filter, "who's assigned"), `task_assignments.notification_status` (worker reconciliation sweep), `comments.task_id`, `refresh_tokens.user_id` / `.expires_at` (logout-all-devices, expiry cleanup), plus a **GIN index** on the generated `tasks.search_vector` column for full-text search.
+**Indexes** (each justified by its query pattern): `projects.org_id` (every query is tenant-scoped), `projects (org_id, deleted_at)` (soft-delete-aware listing), `tasks.project_id` / `(project_id, status)` (listing + dashboard), `tasks.priority`, `tasks.due_date` (filters), `task_assignments.user_id` / `.task_id` (assignee filter, "who's assigned"), `task_assignments.notification_status` (worker reconciliation sweep), `comments.task_id`, `refresh_tokens.user_id` / `.expires_at` (logout-all-devices, expiry cleanup), plus a **GIN index** on the generated `tasks.search_vector` column for full-text search.
 
 **Bonus features implemented:**
 - **Soft delete**: `projects.deleted_at` / `tasks.deleted_at`; all reads filter `deleted_at IS NULL`.
@@ -120,8 +120,10 @@ Tables: `users`, `organizations`, `org_members`, `projects`, `tasks`, `task_assi
 API: assignmentService.assign()
   1. Validate assignee is in the same org as the task
   2. INSERT task_assignment (Postgres transaction) → this is the durable, authoritative result
-  3. emailQueue.add(...) → best-effort enqueue into Redis/BullMQ
-  4. Respond 201 to the client (never waits on step 3's outcome, and never on the email itself)
+  3. AWAIT emailQueue.add(...) synchronously → the request does not respond until this settles
+  4a. If enqueue succeeds: notification_status = 'queued' → API responds 201 Created
+  4b. If enqueue fails:    notification_status = 'failed' → API responds 202 Accepted
+      (the assignment is NOT rolled back either way)
 
 Worker: BullMQ Worker on "email-notifications"
   - processes jobs with the mock email sender (jobs/email.job.ts)
@@ -134,13 +136,16 @@ Worker: BullMQ Worker on "email-notifications"
 
 ### Assignment + notification consistency strategy (spec requirement)
 
-Postgres and Redis cannot share a transaction, so the assignment write and the email enqueue are **intentionally decoupled**:
+The spec requires: *"The assignment endpoint must persist the task assignment and enqueue the email notification job before returning a successful response."* This is enforced literally, not just as an ordering convention:
 
-1. The `task_assignment` row is written first and is the single source of truth - once it commits, the API call is a success, full stop.
-2. Enqueueing the BullMQ job is a **best-effort side effect**. If it fails (Redis blip, network partition), we do **not** roll back or fail the assignment - we mark `notification_status = 'failed'` on the row, log it, and move on.
-3. The worker's **reconciliation sweep** finds any assignment stuck in `pending`/`failed` and retries enqueueing it, capped at 5 sweep attempts per row.
+1. The `task_assignment` row is written first (Postgres transaction) - this is the durable, authoritative record of the assignment.
+2. The API then **awaits** `emailQueue.add(...)` - the enqueue attempt happens synchronously, before any response is sent. The request never returns before both steps have been attempted.
+3. **The response status depends on the actual outcome of step 2, not just on step 1 succeeding:**
+   - Enqueue **succeeds** → `notification_status = 'queued'` → **`201 Created`**. Both persistence and enqueueing are confirmed done; this is the only case that gets `201`.
+   - Enqueue **fails** (Redis blip, network partition) → `notification_status = 'failed'` → **`202 Accepted`**. The assignment itself is real and returned in the body, but the response is deliberately *not* `201` - it does not claim the notification job was enqueued, because it wasn't.
+4. In the `202` case the assignment is **not rolled back**. Postgres and Redis cannot share a transaction, and rolling back a real, valid assignment just because a best-effort side effect failed would itself be an inconsistency (the client would have to retry the whole operation, risking confusing dedupe/conflict semantics on a task that may already be correctly assigned). Instead, the persisted row - now the recovery record - is picked up by the worker's **reconciliation sweep**, which retries enqueueing for any assignment stuck in `pending`/`failed`, capped at 5 sweep attempts per row.
 
-This favors **availability of the core, user-visible operation** (the assignment itself) over strict delivery guarantees for a best-effort, mockable side effect - the assignment is never left "half-done", and email delivery becomes eventually consistent. See `src/services/assignment.service.ts` for the full comment.
+In short: `201` is reserved exclusively for "both steps confirmed"; `202` honestly reports "assignment persisted, notification enqueue pending retry" instead of overclaiming success; and the persisted assignment is always the recovery anchor reconciliation works from - it is never left in limbo or silently discarded. See `src/services/assignment.service.ts` and `src/controllers/task.controller.ts` for the implementation, and [ARCHITECTURE.md](./ARCHITECTURE.md) for the full flow diagram.
 
 **Bonus features implemented:**
 - **Deduplication within 5 seconds**: a repeat assignment call for the same (task, user) pair within 5s of the first is treated as a no-op success (no duplicate DB row, no duplicate email job); outside that window it's a `409 TASK_ALREADY_ASSIGNED`.
@@ -169,7 +174,7 @@ Full request/response schemas: **Swagger UI at `/docs`** (`docs/openapi.json`).
 | POST/GET | `/projects/:projectId/tasks` | create / list with filters + pagination |
 | PATCH | `/projects/:projectId/tasks/bulk-status` | bonus: bulk status update |
 | GET/PATCH/DELETE | `/projects/:projectId/tasks/:taskId` | |
-| POST | `/projects/:projectId/tasks/:taskId/assignments` | assign (enqueues email job) |
+| POST | `/projects/:projectId/tasks/:taskId/assignments` | assign; `201` if the notification job was confirmed enqueued, `202` if persisted but enqueue failed (see §8) |
 | DELETE | `/projects/:projectId/tasks/:taskId/assignments/:userId` | unassign |
 | POST/GET | `/projects/:projectId/tasks/:taskId/comments` | |
 | GET | `/tasks/search?q=` | bonus: full-text search |
@@ -235,7 +240,7 @@ To run integration tests locally without full Docker: `docker compose up -d post
 
 Coverage highlights:
 - **Unit**: bcrypt cost factor + verify/reject, JWT sign/verify + tamper rejection, pagination helper edge cases, task-assignment validation rules (cross-org rejection, dedupe window, 403-vs-404 shaping) via mocked repositories.
-- **Integration**: full register/login/refresh(-rotation)/logout flow, task CRUD + filters + dashboard, cross-tenant 403 (project & task, with a check that the response body never contains the other org's data), client-supplied `orgId` being ignored, validation error shape, RBAC (member cannot delete a project), and (bonus) that assigning a task actually creates an inspectable BullMQ job.
+- **Integration**: full register/login/refresh(-rotation)/logout flow, task CRUD + filters + dashboard, cross-tenant 403 (project & task, with a check that the response body never contains the other org's data), client-supplied `orgId` being ignored, validation error shape, RBAC (member cannot delete a project), that assigning a task actually creates an inspectable BullMQ job, and the assignment consistency strategy itself: `201` when the notification job is confirmed enqueued, `202` (with the assignment still persisted) when enqueueing is simulated to fail, and that the reconciliation sweep subsequently enqueues it.
 
 ## 17. Swagger URL
 

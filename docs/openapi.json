@@ -466,14 +466,15 @@
     "/projects/{projectId}/tasks/{taskId}/assignments": {
       "post": {
         "tags": ["Tasks"],
-        "summary": "Assign a user (from the same organization) to a task; enqueues an email notification job",
+        "summary": "Assign a user (from the same organization) to a task; persists the assignment and enqueues an email notification job before responding",
         "parameters": [
           { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
           { "name": "taskId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssignTaskRequest" } } } },
         "responses": {
-          "201": { "description": "Assigned", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskAssignment" } } } },
+          "201": { "description": "Assignment persisted AND the notification job was successfully enqueued (notificationStatus: queued)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskAssignment" } } } },
+          "202": { "description": "Assignment persisted, but enqueueing the notification job failed (notificationStatus: failed); a background reconciliation sweep will retry enqueueing it - no client action needed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskAssignment" } } } },
           "400": { "description": "Assignee not in the same organization" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "description": "Already assigned (outside the 5s dedupe window)" }

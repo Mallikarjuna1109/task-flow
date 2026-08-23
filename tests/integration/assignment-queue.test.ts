@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { app, registerUser, createProject, createTask } from './helpers';
 import { emailQueue, assignmentNotificationJobId } from '../../src/jobs/queues';
+import { runNotificationReconciliationSweep } from '../../src/jobs/reconciliation';
+import { prisma } from '../../src/config/prisma';
 
 describe('Task assignment creates a BullMQ notification job', () => {
   it('enqueues a real job, and the assignment response reflects it after enqueueing (not the stale pre-enqueue state)', async () => {
@@ -65,5 +67,84 @@ describe('Task assignment creates a BullMQ notification job', () => {
       .set('Authorization', `Bearer ${user.accessToken}`)
       .expect(404);
     expect(res.body.code).toBe('JOB_NOT_FOUND');
+  });
+});
+
+describe('Assignment + notification consistency strategy', () => {
+  it('returns 201 when the notification job is confirmed enqueued', async () => {
+    const user = await registerUser();
+    const project = await createProject(user);
+    const task = await createTask(user, project.id);
+
+    const assignRes = await request(app)
+      .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ userId: user.userId })
+      .expect(201);
+
+    expect(assignRes.body.notificationStatus).toBe('queued');
+    expect(typeof assignRes.body.notificationJobId).toBe('string');
+  });
+
+  it('returns 202 (not 201) when enqueueing fails, still persists the assignment, and reconciliation later enqueues it', async () => {
+    const user = await registerUser();
+    const project = await createProject(user);
+    const task = await createTask(user, project.id);
+
+    const addSpy = jest.spyOn(emailQueue, 'add').mockRejectedValueOnce(new Error('simulated redis failure'));
+
+    const assignRes = await request(app)
+      .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ userId: user.userId })
+      .expect(202);
+
+    expect(assignRes.body.notificationStatus).toBe('failed');
+    expect(assignRes.body.notificationJobId).toBeNull();
+
+    addSpy.mockRestore();
+
+    const persisted = await prisma.taskAssignment.findUnique({ where: { id: assignRes.body.id } });
+    expect(persisted).toBeTruthy();
+    expect(persisted?.notificationStatus).toBe('failed');
+    expect(persisted?.taskId).toBe(task.id);
+    expect(persisted?.userId).toBe(user.userId);
+
+    const swept = await runNotificationReconciliationSweep();
+    expect(swept).toBeGreaterThanOrEqual(1);
+
+    const jobId = assignmentNotificationJobId(assignRes.body.id);
+    const job = await emailQueue.getJob(jobId);
+    expect(job).toBeTruthy();
+
+    const jobStatusRes = await request(app)
+      .get(`/jobs/${jobId}`)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .expect(200);
+    expect(['pending', 'active', 'completed']).toContain(jobStatusRes.body.status);
+  });
+
+  it('returns 202 for a deduped repeat assignment whose original enqueue is still not confirmed', async () => {
+    const user = await registerUser();
+    const project = await createProject(user);
+    const task = await createTask(user, project.id);
+
+    const addSpy = jest.spyOn(emailQueue, 'add').mockRejectedValueOnce(new Error('simulated redis failure'));
+
+    await request(app)
+      .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ userId: user.userId })
+      .expect(202);
+
+    addSpy.mockRestore();
+
+    const repeatRes = await request(app)
+      .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ userId: user.userId })
+      .expect(202);
+
+    expect(repeatRes.body.notificationStatus).toBe('failed');
   });
 });

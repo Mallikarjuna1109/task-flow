@@ -254,7 +254,7 @@
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["if (pm.response.code === 201) { pm.collectionVariables.set('assigneeUserId', pm.response.json().userId); }"] }
+              "script": { "exec": ["if (pm.response.code === 201 || pm.response.code === 202) { pm.collectionVariables.set('assigneeUserId', pm.response.json().userId); }"] }
             }
           ]
         },
