@@ -2,17 +2,9 @@ import request from 'supertest';
 import { app, registerUser, createProject, createTask } from './helpers';
 import { emailQueue, assignmentNotificationJobId } from '../../src/jobs/queues';
 
-// Bonus: verify that assigning a task actually creates a BullMQ job on the
-// email-notifications queue (not just that the DB row exists).
-//
-// Regression coverage for a real bug: BullMQ rejects any custom jobId that
-// contains ':' unless it splits into exactly 3 parts (its own legacy
-// repeatable-job key format - see jobs/queues.ts for the full explanation).
-// `assignment-email:<uuid>` always tripped that check, so the job was never
-// actually created and this test - and the real endpoint - would fail. The
-// jobId is now built exclusively via `assignmentNotificationJobId` (hyphen
-// separator) rather than re-hardcoded here, so this test can't silently
-// drift from the real convention again.
+// Regression coverage: BullMQ rejects a jobId containing ':' unless it
+// splits into exactly 3 parts - see jobs/jobIds.ts. The jobId here is built
+// via assignmentNotificationJobId(), not re-hardcoded, so it can't drift.
 describe('Task assignment creates a BullMQ notification job', () => {
   it('enqueues a real job, and the assignment response reflects it after enqueueing (not the stale pre-enqueue state)', async () => {
     const user = await registerUser();
@@ -29,9 +21,6 @@ describe('Task assignment creates a BullMQ notification job', () => {
     const jobId = assignmentNotificationJobId(assignmentId);
     expect(jobId).not.toContain(':');
 
-    // The assignment response itself must expose the real outcome of
-    // enqueueing (jobId + status), not the pending snapshot from before the
-    // enqueue was attempted.
     expect(assignRes.body.notificationJobId).toBe(jobId);
     expect(assignRes.body.notificationStatus).toBe('queued');
 
@@ -64,8 +53,6 @@ describe('Task assignment creates a BullMQ notification job', () => {
     const jobBefore = await emailQueue.getJob(jobId);
     expect(jobBefore).toBeTruthy();
 
-    // Re-adding with the same deterministic jobId must not throw and must
-    // not create a second job - BullMQ resolves it against the existing job.
     await expect(
       emailQueue.add('send-assignment-email', jobBefore!.data, { jobId }),
     ).resolves.toBeTruthy();

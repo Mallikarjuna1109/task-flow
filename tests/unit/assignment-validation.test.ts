@@ -8,13 +8,8 @@ jest.mock('../../src/repositories/task.repository');
 jest.mock('../../src/repositories/assignment.repository');
 jest.mock('../../src/repositories/org.repository');
 jest.mock('../../src/repositories/user.repository');
-// `jobs/jobIds.ts` is a pure module (no Redis/BullMQ imports), so it's safe
-// to use its REAL implementation here rather than mocking it - this unit
-// test exercises the actual job id convention without opening a live Redis
-// connection (which `jobs/queues.ts` would do as a module-load side effect).
-// Regression coverage for the "Custom Id cannot contain :" BullMQ bug: a
-// colon-containing id that doesn't split into exactly 3 parts is rejected -
-// see jobs/jobIds.ts for the full explanation.
+// jobs/jobIds.ts is pure (no Redis import), so its real implementation is
+// used here instead of mocking jobs/queues.ts (which opens a live connection).
 import { assignmentNotificationJobId } from '../../src/jobs/jobIds';
 
 jest.mock('../../src/jobs/queues', () => ({
@@ -94,8 +89,6 @@ describe('assignmentService.assign - validation rules', () => {
       notificationStatus: 'pending',
       notificationJobId: null,
     });
-    // Simulates the DB row as it looks *after* the enqueue succeeded - this
-    // is what the service must return instead of the stale pending snapshot.
     (assignmentRepository.updateNotificationStatus as jest.Mock).mockResolvedValue({
       id: 'assignment-1',
       taskId: 'task-1',
@@ -111,15 +104,11 @@ describe('assignmentService.assign - validation rules', () => {
       expect.anything(),
     );
 
-    // The jobId actually handed to BullMQ must be the real, colon-free
-    // convention (not a hardcoded/mocked string).
     expect(emailQueue.add).toHaveBeenCalledTimes(1);
     const [, , jobOptions] = (emailQueue.add as jest.Mock).mock.calls[0];
     expect(jobOptions.jobId).toBe('assignment-email-assignment-1');
     expect(jobOptions.jobId).not.toContain(':');
 
-    // The returned assignment must reflect the post-enqueue state, not the
-    // pre-enqueue "pending"/null snapshot.
     expect(result).toMatchObject({
       id: 'assignment-1',
       notificationStatus: 'queued',
@@ -140,8 +129,6 @@ describe('assignmentService.assign - validation rules', () => {
     (emailQueue.add as jest.Mock).mockRejectedValue(new Error('redis unreachable'));
     (assignmentRepository.updateNotificationStatus as jest.Mock).mockRejectedValue(new Error('db unreachable'));
 
-    // The assignment itself must still succeed (never throw) even though
-    // both the enqueue and the failure-tracking update failed.
     const result = await assignmentService.assign(auth, 'project-1', 'task-1', 'user-2');
     expect(result).toMatchObject({ id: 'assignment-1', notificationStatus: 'pending' });
   });

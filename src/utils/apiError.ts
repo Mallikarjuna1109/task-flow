@@ -21,11 +21,6 @@ export class ApiError extends Error {
     return new ApiError(401, code, message, details);
   }
 
-  // Used both for "not your org" (never reveal the resource exists) and for
-  // plain permission failures - the multi-tenant requirement is that
-  // cross-tenant access returns 403 without leaking resource details, which
-  // this shape satisfies since `details` is caller-controlled and never
-  // populated with the underlying record.
   static forbidden(code: string, message: string, details: Record<string, unknown> = {}) {
     return new ApiError(403, code, message, details);
   }

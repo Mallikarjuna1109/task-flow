@@ -16,7 +16,6 @@ export interface CreateTaskInput {
 
 export const taskService = {
   async create(auth: AuthContext, projectId: string, data: CreateTaskInput) {
-    // Ensures the project belongs to the caller's org (throws 404/403 otherwise).
     await projectService.getOrThrow(auth, projectId);
     return taskRepository.create(projectId, { ...data, createdById: auth.userId });
   },
@@ -27,7 +26,6 @@ export const taskService = {
   },
 
   async getOrThrow(auth: AuthContext, projectId: string, taskId: string) {
-    // Confirms tenant + project scoping first.
     await projectService.getOrThrow(auth, projectId);
 
     const task = await taskRepository.findById(auth.orgId, taskId);

@@ -47,7 +47,6 @@ describe('Task CRUD', () => {
       .set('Authorization', `Bearer ${user.accessToken}`)
       .expect(204);
 
-    // Soft-deleted task is no longer returned.
     const afterDelete = await request(app)
       .get(`/projects/${project.id}/tasks/${created.id}`)
       .set('Authorization', `Bearer ${user.accessToken}`)
@@ -79,10 +78,8 @@ describe('Task CRUD', () => {
     const project = await createProject(admin);
     const task = await createTask(admin, project.id);
 
-    // Add a second member to the same org so we have a valid assignee.
     const member = await registerUser({ email: 'member@another-org.test' });
 
-    // Assigning a user from a different org must fail.
     const crossOrgAssign = await request(app)
       .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
       .set('Authorization', `Bearer ${admin.accessToken}`)
@@ -90,7 +87,6 @@ describe('Task CRUD', () => {
       .expect(400);
     expect(crossOrgAssign.body.code).toBe('USER_NOT_IN_ORGANIZATION');
 
-    // Assigning the admin themself (same org) succeeds.
     const assignRes = await request(app)
       .post(`/projects/${project.id}/tasks/${task.id}/assignments`)
       .set('Authorization', `Bearer ${admin.accessToken}`)

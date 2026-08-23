@@ -11,8 +11,6 @@ async function main(): Promise<void> {
   const worker = createEmailWorker();
   logger.info('TaskFlow email worker started, listening for jobs on the email-notifications queue');
 
-  // Run once at startup (catches anything left pending from before the
-  // worker was last running) and then on a fixed interval.
   await runNotificationReconciliationSweep().catch((err) => logger.error({ err }, 'Initial reconciliation sweep failed'));
   const sweepHandle = scheduleReconciliationSweep(60_000);
 

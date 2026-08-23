@@ -21,7 +21,6 @@ router.patch('/:projectId', validate(updateProjectSchema), projectController.upd
 router.delete('/:projectId', validate(projectIdParamSchema), projectController.remove);
 router.get('/:projectId/dashboard', validate(projectIdParamSchema), projectController.dashboard);
 
-// Tasks are nested under a project - /projects/:projectId/tasks/...
 router.use('/:projectId/tasks', taskRouter);
 
 export default router;

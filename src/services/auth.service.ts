@@ -36,13 +36,8 @@ function slugify(name: string): string {
   return `${base || 'org'}-${randomUUID().slice(0, 8)}`;
 }
 
-/**
- * Resolves the org context to embed in a user's JWT. A user may belong to
- * more than one organization (an admin can invite them); we deterministically
- * pick their most-recently-joined membership as the "active" org context,
- * since there is no multi-org-switching endpoint in scope for this
- * assignment (see orgRepository.findMembershipsForUser for the rationale).
- */
+// A user's active org context is their most-recently-joined membership -
+// there is no multi-org-switching endpoint in scope for this assignment.
 async function resolvePrimaryMembership(userId: string) {
   const memberships = await orgRepository.findMembershipsForUser(userId);
   if (memberships.length === 0) {
@@ -112,8 +107,8 @@ export const authService = {
 
   async login(email: string, password: string, meta: { userAgent?: string | null; ipAddress?: string | null }) {
     const user = await userRepository.findByEmail(email);
-    // Constant-shape response whether the email exists or not - avoids
-    // leaking account existence via timing/response differences.
+    // Always hash-compare against something, even for an unknown email, to
+    // avoid leaking account existence via timing.
     const passwordHash = user?.passwordHash ?? '$2b$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinva';
     const passwordValid = await verifyPassword(password, passwordHash);
 
@@ -149,8 +144,7 @@ export const authService = {
       throw ApiError.unauthorized('INVALID_REFRESH_TOKEN', 'Refresh token is invalid or expired');
     }
     if (stored.revokedAt) {
-      // Reuse of a revoked/rotated token is a strong signal of token theft -
-      // revoke the whole session family defensively.
+      // Reuse of a revoked token signals possible theft - revoke everything.
       logger.warn({ userId: stored.userId }, 'Refresh token reuse detected - revoking all sessions');
       await refreshTokenRepository.revokeAllForUser(stored.userId);
       throw ApiError.unauthorized('REFRESH_TOKEN_REUSED', 'Refresh token has already been used');
@@ -166,9 +160,6 @@ export const authService = {
 
     const membership = await resolvePrimaryMembership(user.id);
 
-    // Bonus: refresh token rotation - issue a brand new refresh token and
-    // immediately revoke the presented one, chaining them via
-    // replacedByTokenHash for auditability.
     const tokens = await issueTokenPair(user, membership.orgId, membership.role, meta);
     await refreshTokenRepository.revoke(stored.id, hashToken(tokens.refreshToken));
 
@@ -187,12 +178,10 @@ export const authService = {
   async logout(rawRefreshToken: string, allDevices: boolean) {
     const stored = await refreshTokenRepository.findByTokenHash(hashToken(rawRefreshToken));
     if (!stored) {
-      // Logout is idempotent - an unknown/expired token is treated as "already logged out".
       return;
     }
 
     if (allDevices) {
-      // Bonus: logout all devices.
       await refreshTokenRepository.revokeAllForUser(stored.userId);
       return;
     }

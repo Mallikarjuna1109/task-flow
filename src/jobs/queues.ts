@@ -24,16 +24,13 @@ export const emailQueue = new Queue<AssignmentEmailJobData>(EMAIL_QUEUE_NAME, {
   defaultJobOptions: {
     attempts: env.emailMaxRetries,
     backoff: { type: 'exponential', delay: 1000 },
-    removeOnComplete: { age: 24 * 60 * 60, count: 1000 },
-    // Keep failed jobs around (they are also mirrored into the DLQ queue
-    // below) so GET /jobs/:id can still report them as "failed".
+    // Kept (not removed) so GET /jobs/:id can still report "failed".
     removeOnFail: false,
   },
 });
 
-// Dead-letter queue: jobs that exhausted all retry attempts are moved here
-// by the worker's `failed` event handler (see workers/email.worker.ts), so
-// they can be inspected/replayed independently of the live queue.
+// Dead-letter queue: jobs that exhaust all retries are moved here by the
+// worker's `failed` handler (workers/email.worker.ts).
 export const emailDeadLetterQueue = new Queue(EMAIL_DLQ_NAME, {
   connection: redisConnection,
   defaultJobOptions: {
@@ -41,4 +38,3 @@ export const emailDeadLetterQueue = new Queue(EMAIL_DLQ_NAME, {
     removeOnFail: false,
   },
 });
-

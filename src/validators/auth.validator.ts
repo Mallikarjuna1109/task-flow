@@ -1,10 +1,7 @@
 import { z } from 'zod';
 
-// Registration always creates a brand new organization owned (org_admin) by
-// the registering user - this keeps the auth surface self-contained without
-// needing a separate "invite" flow, while still satisfying "users belong to
-// organizations". Joining an *existing* org is handled by org_admins via the
-// member-management endpoints, not by self-registration.
+// Registration always creates a brand new org (registrant becomes org_admin).
+// Joining an existing org happens via the member-management endpoints.
 export const registerSchema = z.object({
   body: z.object({
     email: z.string().trim().toLowerCase().email(),

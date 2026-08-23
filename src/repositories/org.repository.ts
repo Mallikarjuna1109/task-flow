@@ -18,22 +18,13 @@ export const orgRepository = {
     return prisma.orgMember.create({ data: { orgId, userId, role } });
   },
 
-  /** Membership row for a specific (user, org) pair - the source of truth for role + tenant scoping. */
   findMembership(userId: string, orgId: string) {
     return prisma.orgMember.findUnique({
       where: { orgId_userId: { orgId, userId } },
     });
   },
 
-  /**
-   * All memberships for a user, used to resolve which org context to attach
-   * at login/refresh - ordered most-recently-joined first, since a freshly
-   * registered user is always org_admin of their own newly-created org, and
-   * being invited into another org afterwards should become their active
-   * context (mirrors "last workspace you joined/switched to" in tools like
-   * Slack/GitHub, and avoids a separate org-switching endpoint being needed
-   * for this assignment's scope).
-   */
+  // Ordered most-recently-joined first - see authService.resolvePrimaryMembership.
   findMembershipsForUser(userId: string) {
     return prisma.orgMember.findMany({
       where: { userId },

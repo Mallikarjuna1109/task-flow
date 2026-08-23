@@ -2,9 +2,7 @@ import IORedis, { Redis } from 'ioredis';
 import { env } from './env';
 import { logger } from './logger';
 
-// BullMQ requires `maxRetriesPerRequest: null` on the connection it is
-// given, otherwise ioredis will give up retrying commands and BullMQ's
-// blocking connections misbehave.
+// BullMQ requires maxRetriesPerRequest: null on connections it uses.
 export function createRedisConnection(): Redis {
   const connection = new IORedis(env.redisUrl, {
     maxRetriesPerRequest: null,

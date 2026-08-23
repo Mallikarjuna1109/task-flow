@@ -30,7 +30,6 @@ export function createApp(): Express {
     res.status(200).json({ status: 'ok' });
   });
 
-  // Swagger UI - accessible locally at /docs
   const openApiDocument = loadOpenApiDocument();
   app.get('/docs/openapi.json', (_req, res) => res.json(openApiDocument));
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));

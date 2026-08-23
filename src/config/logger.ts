@@ -1,8 +1,7 @@
 import pino from 'pino';
 import { env } from './env';
 
-// Safe logging: never log request bodies/headers by default (they may
-// contain passwords or tokens) and redact known-sensitive paths defensively.
+// Redact secrets so they never end up in logs.
 export const logger = pino({
   level: env.logLevel,
   redact: {

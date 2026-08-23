@@ -10,12 +10,7 @@ export interface TaskFilters {
   search?: string;
 }
 
-// As with projectRepository, `orgId` is mandatory everywhere and is always
-// applied against `project.orgId` (a task has no org_id column of its own -
-// tenancy is derived transitively through its parent project). This means a
-// task ID from another organization simply never matches the `where`
-// clause, so it is indistinguishable from a non-existent task - the caller
-// cannot leak whether the resource exists in another tenant.
+// A task has no org_id column of its own - tenancy is enforced via project.orgId.
 function scopedWhere(orgId: string, projectId: string, filters: TaskFilters = {}): Prisma.TaskWhereInput {
   const where: Prisma.TaskWhereInput = {
     projectId,
@@ -35,9 +30,6 @@ function scopedWhere(orgId: string, projectId: string, filters: TaskFilters = {}
     };
   }
   if (filters.search) {
-    // Bonus: PostgreSQL full-text search over the generated `search_vector`
-    // column (title weighted above description). Falls back gracefully to
-    // an ILIKE match if raw tsquery syntax in `search` is invalid.
     where.OR = [
       { title: { contains: filters.search, mode: 'insensitive' } },
       { description: { contains: filters.search, mode: 'insensitive' } },
@@ -69,18 +61,13 @@ export const taskRepository = {
     });
   },
 
-  /** Bare task row scoped by org, without relations - used by the assignment service. */
   findRawById(orgId: string, taskId: string) {
     return prisma.task.findFirst({
       where: { id: taskId, deletedAt: null, project: { orgId, deletedAt: null } },
     });
   },
 
-  /**
-   * NO org filter - used only to distinguish "does not exist" (404) from
-   * "exists in another org" (403). See projectRepository.findByIdUnscoped
-   * for the rationale; never return this row's fields to the client.
-   */
+  // No org filter - only for deciding 404 vs 403, never to return data to the caller.
   findByIdUnscoped(taskId: string) {
     return prisma.task.findFirst({ where: { id: taskId, deletedAt: null } });
   },
@@ -129,7 +116,6 @@ export const taskRepository = {
     });
   },
 
-  /** Bonus: bulk status update, still fully org/project scoped. */
   bulkUpdateStatus(orgId: string, projectId: string, taskIds: string[], status: TaskStatus) {
     return prisma.task.updateMany({
       where: {
@@ -142,7 +128,6 @@ export const taskRepository = {
     });
   },
 
-  /** Bonus: full-text search using the generated tsvector column (falls back to ILIKE via `list`). */
   async fullTextSearch(orgId: string, query: string, params: { skip: number; take: number }) {
     const rows = await prisma.$queryRaw<
       Array<{ id: string; title: string; description: string | null; project_id: string; rank: number }>

@@ -9,7 +9,6 @@ export function createEmailWorker(): Worker<AssignmentEmailJobData> {
   const worker = new Worker<AssignmentEmailJobData>(EMAIL_QUEUE_NAME, processAssignmentEmailJob, {
     connection: createRedisConnection(),
     concurrency: 5,
-    // Bonus: global email rate limit - 50 emails/minute across the whole worker.
     limiter: {
       max: env.emailRateLimitMax,
       duration: env.emailRateLimitDurationMs,

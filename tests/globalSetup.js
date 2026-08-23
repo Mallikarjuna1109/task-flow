@@ -1,11 +1,6 @@
-// Jest global setup (runs once, in a separate process, before any test file).
-//
-// Applies pending Prisma migrations to the dedicated test database
-// (DATABASE_URL_TEST) so integration tests start from a known schema. This
-// is best-effort: if no test database is reachable (e.g. someone is only
-// running the pure unit tests, which need no DB at all) we warn instead of
-// hard-failing the whole run - the integration tests themselves will fail
-// individually with a clear connection error if the DB truly isn't available.
+// Best-effort: warns instead of hard-failing so `npm run test:unit` still
+// works with no DB running at all. Integration tests fail individually if
+// the DB is truly unreachable.
 const { execSync } = require('child_process');
 require('dotenv').config();
 

@@ -33,9 +33,7 @@ services:
     networks:
       - taskflow_net
 
-  # One-shot job: applies Prisma migrations then seeds the database. Both
-  # `api` and `worker` wait for this to complete successfully before
-  # starting, so the schema is always ready before either process connects.
+  # One-shot: applies migrations + seeds. api/worker wait for it to complete.
   migrate:
     build:
       context: .

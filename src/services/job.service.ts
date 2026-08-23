@@ -3,8 +3,6 @@ import { taskRepository } from '../repositories/task.repository';
 import { ApiError } from '../utils/apiError';
 import { AuthContext } from '../types';
 
-// BullMQ's internal states are richer than the spec's 4 statuses -
-// collapse them into the required { pending | active | completed | failed }.
 function toPublicStatus(bullState: string): 'pending' | 'active' | 'completed' | 'failed' {
   switch (bullState) {
     case 'completed':
@@ -29,11 +27,7 @@ export const jobService = {
       throw ApiError.notFound('JOB_NOT_FOUND', 'Job not found', {});
     }
 
-    // Multi-tenant isolation: this job's payload references a task that
-    // must belong to the caller's org, otherwise it's cross-tenant data -
-    // even though job ids are effectively unguessable UUIDs, we don't rely
-    // on obscurity alone. Mirrors the 403-for-cross-org / 404-for-unknown
-    // convention used by projectService/taskService.getOrThrow.
+    // Tenant isolation: the job's task must belong to the caller's org.
     const data = job.data as AssignmentEmailJobData;
     if (data?.taskId) {
       const task = await taskRepository.findRawById(auth.orgId, data.taskId);

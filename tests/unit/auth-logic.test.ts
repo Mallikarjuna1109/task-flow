@@ -5,7 +5,6 @@ import { signAccessToken, verifyAccessToken, signRefreshToken, verifyRefreshToke
 describe('password hashing (bcrypt, cost factor >= 12)', () => {
   it('hashes a password with a bcrypt cost factor of at least 12', async () => {
     const hash = await hashPassword('Sup3rSecret!');
-    // bcrypt hash format: $2b$<cost>$<salt+hash>
     const cost = parseInt(hash.split('$')[2], 10);
     expect(cost).toBeGreaterThanOrEqual(12);
   });

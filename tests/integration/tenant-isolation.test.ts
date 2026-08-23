@@ -14,7 +14,6 @@ describe('Cross-tenant isolation', () => {
       .expect(403);
 
     expect(res.body.code).toBe('FORBIDDEN');
-    // Must not leak the other org's resource data.
     expect(res.body).not.toHaveProperty('name');
     expect(JSON.stringify(res.body)).not.toContain('Org A Secret Project');
   });
@@ -48,8 +47,6 @@ describe('Cross-tenant isolation', () => {
     const orgA = await registerUser({ email: 'a3-admin@org-a3.test', organizationName: 'Org A3' });
     const orgB = await registerUser({ email: 'b3-admin@org-b3.test', organizationName: 'Org B3' });
 
-    // Attempt to smuggle another org's id into the create-project body -
-    // the service must ignore it and use the authenticated org from the JWT.
     const res = await request(app)
       .post('/projects')
       .set('Authorization', `Bearer ${orgA.accessToken}`)

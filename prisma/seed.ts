@@ -12,7 +12,6 @@ async function hash(password: string): Promise<string> {
 async function main() {
   console.log('Seeding database...');
 
-  // --- Organizations -------------------------------------------------
   const acme = await prisma.organization.upsert({
     where: { slug: 'acme-corp' },
     update: {},
@@ -25,7 +24,6 @@ async function main() {
     create: { name: 'Globex Inc', slug: 'globex-inc' },
   });
 
-  // --- Users (5 total, all password: "Password123!") -----------------
   const passwordHash = await hash('Password123!');
 
   const alice = await prisma.user.upsert({
@@ -54,7 +52,6 @@ async function main() {
     create: { email: 'erin@globex.test', name: 'Erin Evans', passwordHash },
   });
 
-  // --- Org membership --------------------------------------------------
   const memberships: Array<[string, string, Role]> = [
     [acme.id, alice.id, Role.org_admin],
     [acme.id, bob.id, Role.member],
@@ -70,7 +67,6 @@ async function main() {
     });
   }
 
-  // --- Projects ----------------------------------------------------------
   const websiteRevamp = await prisma.project.create({
     data: {
       orgId: acme.id,
@@ -96,7 +92,6 @@ async function main() {
     },
   });
 
-  // --- Tasks (12 total, spread across projects/statuses/priorities) ------
   const dayMs = 24 * 60 * 60 * 1000;
   const now = Date.now();
 
@@ -131,7 +126,6 @@ async function main() {
     tasks.push(task);
   }
 
-  // --- Assignments ---------------------------------------------------------
   const assignmentDefs: Array<[typeof tasks[number], { id: string }, { id: string }]> = [
     [tasks[1], bob, alice],
     [tasks[2], carol, alice],
@@ -149,7 +143,6 @@ async function main() {
     });
   }
 
-  // --- Comments --------------------------------------------------------
   await prisma.comment.createMany({
     data: [
       { taskId: tasks[1].id, authorId: alice.id, body: 'Please match the spacing from the Figma file exactly.' },

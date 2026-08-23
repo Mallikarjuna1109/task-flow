@@ -59,7 +59,6 @@ describe('Auth flow', () => {
     expect(typeof res.body.accessToken).toBe('string');
     expect(res.body.refreshToken).not.toBe(user.refreshToken);
 
-    // The old (rotated-out) refresh token must no longer work.
     await request(app).post('/auth/refresh').send({ refreshToken: user.refreshToken }).expect(401);
   });
 

@@ -16,12 +16,6 @@ export const DEFAULT_PAGE = 1;
 export const DEFAULT_LIMIT = 20;
 export const MAX_LIMIT = 100;
 
-/**
- * Normalizes raw (possibly missing/invalid) page & limit query values into
- * safe, bounded pagination parameters plus the Prisma `skip`/`take` pair.
- *
- * Pure function - no I/O - so it is directly unit-testable.
- */
 export function resolvePagination(input: PaginationInput): PaginationParams {
   let page = Number(input.page);
   let limit = Number(input.limit);
@@ -37,7 +31,6 @@ export function resolvePagination(input: PaginationInput): PaginationParams {
   return { page, limit, skip, take: limit };
 }
 
-/** Builds the `{ data, total, page, limit }` response shape required by the spec. */
 export function buildOffsetPage<T>(data: T[], total: number, params: PaginationParams): OffsetPage<T> {
   return {
     data,

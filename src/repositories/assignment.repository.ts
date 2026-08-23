@@ -39,7 +39,6 @@ export const assignmentRepository = {
     return client.taskAssignment.findUnique({ where: { id }, include: { task: true, user: true } });
   },
 
-  /** Used by the worker's reconciliation sweep to find assignments whose email job never made it into Redis. */
   findPendingNotifications(client: Tx = prisma, limit = 50) {
     return client.taskAssignment.findMany({
       where: {

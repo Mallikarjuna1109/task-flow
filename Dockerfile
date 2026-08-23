@@ -1,7 +1,4 @@
-# Multi-stage build shared by both the API and the Worker image. The two
-# services are identical builds of the same codebase - only the final CMD
-# differs - so docker-compose.yml selects the `api` or `worker` build target.
-
+# docker-compose.yml selects the `api` or `worker` build target below.
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
 # openssl is required by the Prisma query engine on Debian-based images.
@@ -16,7 +13,6 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-# ---- API image --------------------------------------------------------
 FROM base AS api
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
@@ -28,7 +24,6 @@ RUN npx prisma generate
 EXPOSE 3000
 CMD ["node", "dist/server.js"]
 
-# ---- Worker image -------------------------------------------------------
 FROM base AS worker
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules

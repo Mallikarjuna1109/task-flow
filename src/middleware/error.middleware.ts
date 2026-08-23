@@ -12,9 +12,6 @@ export function notFoundHandler(req: Request, res: Response): void {
   });
 }
 
-// Centralized error handler - every thrown/forwarded error ends up here so
-// the API always responds with the consistent { error, code, details }
-// shape and never leaks stack traces to the client.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof ApiError) {

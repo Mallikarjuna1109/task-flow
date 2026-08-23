@@ -2,16 +2,8 @@ import { assignmentRepository } from '../repositories/assignment.repository';
 import { assignmentService } from '../services/assignment.service';
 import { logger } from '../config/logger';
 
-/**
- * Reconciliation sweep for the assignment/notification consistency strategy
- * documented in services/assignment.service.ts. Finds task_assignments whose
- * email notification job never successfully made it into Redis (either it
- * was never enqueued, or enqueueing failed) and retries enqueueing them.
- *
- * Runs on an interval inside the worker process - this is the mechanism
- * that makes the system eventually consistent after a transient Redis
- * outage, without ever blocking the original API request.
- */
+// Part of the consistency strategy in services/assignment.service.ts: finds
+// assignments whose email job never made it into Redis and retries them.
 export async function runNotificationReconciliationSweep(): Promise<number> {
   const pending = await assignmentRepository.findPendingNotifications();
   if (pending.length === 0) return 0;

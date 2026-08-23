@@ -1,8 +1,6 @@
 import { Role } from '@prisma/client';
 
-// Identity attached to `req.auth` by the JWT middleware. `orgId` and `role`
-// come from the org_members row resolved server-side at login/refresh time -
-// they are NEVER read from client input, per the multi-tenant requirement.
+// orgId/role are resolved server-side and attached to req.auth - never read from client input.
 export interface AuthContext {
   userId: string;
   email: string;

@@ -8,8 +8,6 @@ const router = Router();
 
 router.use(authenticate);
 
-// Bonus: org-wide full-text task search (title + description), independent
-// of any single project. GET /tasks/search?q=...
 router.get('/search', validate(searchTasksSchema), taskController.search);
 
 export default router;

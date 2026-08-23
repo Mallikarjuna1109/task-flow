@@ -1,10 +1,6 @@
 import { config as loadDotenv } from 'dotenv';
 import path from 'path';
 
-// Load .env before anything else reads process.env. In test mode we still
-// load `.env` (for shared defaults) but individual test env vars set by the
-// test runner / CI take precedence since dotenv never overrides existing
-// process.env values.
 loadDotenv({ path: path.resolve(process.cwd(), '.env') });
 
 function required(name: string, fallback?: string): string {

@@ -12,28 +12,14 @@ import { logger } from '../config/logger';
 const DEDUPE_WINDOW_MS = 5000;
 
 /**
- * Assignment + notification consistency strategy
- * ------------------------------------------------
- * 1. The task_assignment row is written first, in its own DB transaction.
- *    Once that commits, the assignment is considered successful and durable
- *    - this is the source of truth the API responds with.
- * 2. We then attempt to enqueue the email job into BullMQ/Redis. This is a
- *    best-effort side effect, intentionally NOT part of the DB transaction
- *    (Postgres and Redis cannot share a transaction).
- * 3. If enqueueing fails (Redis down, network blip, etc.) we do NOT roll
- *    back or fail the API request - the assignment already happened and is
- *    real. Instead we mark `notification_status = 'failed'` on the row and
- *    log the error.
- * 4. A background reconciliation sweep, run by the worker process on an
- *    interval (see workers/index.ts), scans for assignments with
- *    notification_status in (pending, failed) and re-enqueues them. This
- *    makes the system eventually consistent without ever blocking or
- *    failing the user-facing assignment request on a Redis outage.
- *
- * This favors availability of the core assignment operation over strict
- * delivery guarantees for the (non-critical, mockable) email side effect,
- * which matches "must not leave the task assignment in an inconsistent
- * state" - the assignment is never rolled back due to a queue failure.
+ * Consistency strategy: the task_assignment row is written first and is the
+ * source of truth the API responds with. Enqueueing the email job into
+ * BullMQ/Redis afterward is a best-effort side effect (Postgres and Redis
+ * can't share a transaction) - if it fails, we mark notification_status =
+ * 'failed' and log it rather than rolling back or failing the request. The
+ * worker's reconciliation sweep (workers/index.ts) later retries any
+ * assignment stuck in pending/failed, making delivery eventually consistent
+ * without ever blocking the assignment itself on a Redis outage.
  */
 export const assignmentService = {
   async assign(auth: AuthContext, projectId: string, taskId: string, assigneeUserId: string) {
@@ -49,7 +35,6 @@ export const assignmentService = {
       throw ApiError.notFound('USER_NOT_FOUND', 'User not found', {});
     }
 
-    // Spec: "The assigned user must belong to the same organization as the task."
     const inOrg = await orgRepository.isUserInOrg(assigneeUserId, auth.orgId);
     if (!inOrg) {
       throw ApiError.badRequest('USER_NOT_IN_ORGANIZATION', 'Assignee must belong to the same organization as the task', {});
@@ -59,8 +44,6 @@ export const assignmentService = {
     if (existing) {
       const ageMs = Date.now() - existing.createdAt.getTime();
       if (ageMs <= DEDUPE_WINDOW_MS) {
-        // Bonus: deduplicate assignments within 5 seconds - treat repeated
-        // rapid calls (double submit, retry-on-timeout) as a no-op success.
         return existing;
       }
       throw ApiError.conflict('TASK_ALREADY_ASSIGNED', 'User is already assigned to this task', {});
@@ -81,12 +64,6 @@ export const assignmentService = {
       assignedByUserId: auth.userId,
     });
 
-    // Return the row as it stands *after* enqueueing was attempted, so the
-    // response's notificationStatus/notificationJobId reflect what actually
-    // happened (queued + real job id, or failed) rather than the stale
-    // pre-enqueue snapshot. Only fall back to the pre-enqueue object if even
-    // the bookkeeping update itself failed (never let that break the
-    // otherwise-successful assignment response).
     return updated ?? assignment;
   },
 
@@ -104,18 +81,8 @@ export const assignmentService = {
     }
   },
 
-  /**
-   * Enqueues the email job and records the outcome on the assignment row.
-   * Never throws - returns the updated assignment row (fresh
-   * notificationStatus/notificationJobId) on either outcome, or `null` only
-   * if the DB bookkeeping update itself also failed (in which case the
-   * caller falls back to its pre-enqueue snapshot rather than erroring).
-   *
-   * Uses `assignmentNotificationJobId(assignmentId)` as the BullMQ job id -
-   * the SAME helper used here, by the worker's DLQ push, and by the
-   * reconciliation sweep (via this same method) - so the job id convention
-   * can never drift between producers.
-   */
+  // Never throws - returns the updated assignment row, or null only if the
+  // DB bookkeeping update itself also failed.
   async enqueueNotification(
     assignmentId: string,
     data: {
@@ -130,9 +97,6 @@ export const assignmentService = {
     },
   ): Promise<TaskAssignment | null> {
     try {
-      // Deterministic jobId => re-adding the same assignmentId (e.g. a
-      // reconciliation retry) is a no-op against an existing job rather
-      // than a duplicate, which is what prevents duplicate emails.
       const job = await emailQueue.add('send-assignment-email', data, {
         jobId: assignmentNotificationJobId(assignmentId),
       });

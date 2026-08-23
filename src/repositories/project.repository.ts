@@ -1,10 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 
-// Every read/write here takes `orgId` as a mandatory, non-optional parameter
-// and folds it into the `where` clause. This is the enforcement point for
-// tenant isolation at the data-access layer - callers (services) can never
-// forget to scope a query because the repository signature does not allow it.
+// orgId is mandatory on every method and always folded into the `where`
+// clause - this is the tenant-isolation enforcement point.
 export const projectRepository = {
   create(orgId: string, data: { name: string; description?: string | null; createdById: string }) {
     return prisma.project.create({
@@ -18,13 +16,7 @@ export const projectRepository = {
     });
   },
 
-  /**
-   * Looks up a project by ID with NO org filter. Used only to distinguish
-   * "does not exist" (404) from "exists but belongs to another org" (403)
-   * per the cross-tenant-access requirement. Callers must never return the
-   * fields of a cross-org result to the client - only use this to decide
-   * which error to throw.
-   */
+  // No org filter - only for deciding 404 vs 403, never to return data to the caller.
   findByIdUnscoped(projectId: string) {
     return prisma.project.findFirst({ where: { id: projectId, deletedAt: null } });
   },
@@ -56,7 +48,6 @@ export const projectRepository = {
     });
   },
 
-  /** Task counts grouped by status for the project dashboard endpoint. */
   async taskCountsByStatus(orgId: string, projectId: string) {
     const grouped = await prisma.task.groupBy({
       by: ['status'],
