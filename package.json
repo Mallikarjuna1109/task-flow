@@ -9,7 +9,7 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
     "dev:api": "tsx watch src/server.ts",
     "dev:worker": "tsx watch src/workers/index.ts",
     "start:api": "node dist/server.js",
