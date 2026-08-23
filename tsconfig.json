@@ -21,6 +21,6 @@
     "emitDecoratorMetadata": true,
     "typeRoots": ["./node_modules/@types", "./src/types"]
   },
-  "include": ["src", "prisma/seed.ts", "tests"],
+  "include": ["src", "api", "prisma/seed.ts", "tests"],
   "exclude": ["node_modules", "dist"]
 }
